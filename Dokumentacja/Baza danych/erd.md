@@ -1,252 +1,124 @@
+```mermaid
 erDiagram
-
-&#x20;   UZYTKOWNIK {
-
-&#x20;       int id PK
-
-&#x20;       string imie
-
-&#x20;       string nazwisko
-
-&#x20;       string email
-
-&#x20;       string haslo\_hash
-
-&#x20;       string rola
-
-&#x20;       datetime created\_at
-
-&#x20;   }
-
-
-
-&#x20;   ZAKLAD {
-
-&#x20;       int id PK
-
-&#x20;       string nazwa
-
-&#x20;       string adres
-
-&#x20;       string nip
-
-&#x20;       string opiekun\_imie
-
-&#x20;       string opiekun\_nazwisko
-
-&#x20;       string opiekun\_stanowisko
-
-&#x20;       string opiekun\_email
-
-&#x20;       string opiekun\_telefon
-
-&#x20;       datetime created\_at
-
-&#x20;   }
-
-
-
-&#x20;   PRAKTYKA {
-
-&#x20;       int id PK
-
-&#x20;       int student\_id FK
-
-&#x20;       int uopz\_id FK
-
-&#x20;       int zopz\_id FK
-
-&#x20;       int zaklad\_id FK
-
-&#x20;       date data\_rozpoczecia
-
-&#x20;       date data\_zakonczenia
-
-&#x20;       int liczba\_dni
-
-&#x20;       string status
-
-&#x20;       datetime created\_at
-
-&#x20;       datetime updated\_at
-
-&#x20;   }
-
-
-
-&#x20;   WPIS\_DZIENNIKA {
-
-&#x20;       int id PK
-
-&#x20;       int praktyka\_id FK
-
-&#x20;       date data\_wpisu
-
-&#x20;       text opis\_prac
-
-&#x20;       bool potwierdzony
-
-&#x20;       datetime potwierdzone\_at
-
-&#x20;       datetime created\_at
-
-&#x20;   }
-
-
-
-&#x20;   WPIS\_EFEKT {
-
-&#x20;       int wpis\_id FK
-
-&#x20;       int efekt\_id FK
-
-&#x20;   }
-
-
-
-&#x20;   EFEKT\_UCZENIA {
-
-&#x20;       int id PK
-
-&#x20;       string kod
-
-&#x20;       text opis
-
-&#x20;   }
-
-
-
-&#x20;   DOKUMENT {
-
-&#x20;       int id PK
-
-&#x20;       int praktyka\_id FK
-
-&#x20;       string typ
-
-&#x20;       text zawartosc\_json
-
-&#x20;       string status
-
-&#x20;       text uwagi
-
-&#x20;       datetime created\_at
-
-&#x20;       datetime updated\_at
-
-&#x20;   }
-
-
-
-&#x20;   OCENA\_KONCOWA {
-
-&#x20;       int id PK
-
-&#x20;       int praktyka\_id FK
-
-&#x20;       float ocena\_e
-
-&#x20;       float ocena\_s
-
-&#x20;       float ocena\_u
-
-&#x20;       float ocena\_z
-
-&#x20;       float ocena\_k
-
-&#x20;       datetime data\_egzaminu
-
-&#x20;       datetime created\_at
-
-&#x20;   }
-
-
-
-&#x20;   HOSPITACJA {
-
-&#x20;       int id PK
-
-&#x20;       int praktyka\_id FK
-
-&#x20;       int uopz\_id FK
-
-&#x20;       date data\_wizyty
-
-&#x20;       text notatki
-
-&#x20;       datetime created\_at
-
-&#x20;   }
-
-
-
-&#x20;   WNIOSEK\_ZALICZENIE {
-
-&#x20;       int id PK
-
-&#x20;       int student\_id FK
-
-&#x20;       int dyrektor\_id FK
-
-&#x20;       text uzasadnienie
-
-&#x20;       string typ\_podstawy
-
-&#x20;       string status
-
-&#x20;       text decyzja\_opis
-
-&#x20;       datetime created\_at
-
-&#x20;       datetime updated\_at
-
-&#x20;   }
-
-
-
-&#x20;   AUDIT\_LOG {
-
-&#x20;       int id PK
-
-&#x20;       int uzytkownik\_id FK
-
-&#x20;       string akcja
-
-&#x20;       string tabela
-
-&#x20;       int rekord\_id
-
-&#x20;       text stara\_wartosc
-
-&#x20;       text nowa\_wartosc
-
-&#x20;       datetime created\_at
-
-&#x20;   }
-
-
-
-&#x20;   UZYTKOWNIK ||--o{ PRAKTYKA : "jest studentem"
-
-&#x20;   UZYTKOWNIK ||--o{ PRAKTYKA : "jest UOPZ"
-
-&#x20;   ZAKLAD ||--o{ PRAKTYKA : "przyjmuje"
-
-&#x20;   PRAKTYKA ||--o{ WPIS\_DZIENNIKA : "zawiera"
-
-&#x20;   WPIS\_DZIENNIKA ||--o{ WPIS\_EFEKT : "dotyczy"
-
-&#x20;   EFEKT\_UCZENIA ||--o{ WPIS\_EFEKT : "realizowany przez"
-
-&#x20;   PRAKTYKA ||--o{ DOKUMENT : "posiada"
-
-&#x20;   PRAKTYKA ||--|| OCENA\_KONCOWA : "kończy się"
-
-&#x20;   PRAKTYKA ||--o{ HOSPITACJA : "obejmuje"
-
-&#x20;   UZYTKOWNIK ||--o{ HOSPITACJA : "przeprowadza"
-
-&#x20;   UZYTKOWNIK ||--o{ WNIOSEK\_ZALICZENIE : "składa"
-
-&#x20;   UZYTKOWNIK ||--o{ AUDIT\_LOG : "generuje"
-
+    UZYTKOWNIK {
+        int id PK
+        string imie
+        string nazwisko
+        string email
+        string haslo_hash
+        string rola
+        datetime created_at
+    }
+
+    ZAKLAD {
+        int id PK
+        string nazwa
+        string adres
+        string nip
+        string opiekun_imie
+        string opiekun_nazwisko
+        string opiekun_email
+        string opiekun_telefon
+        datetime created_at
+    }
+
+    PRAKTYKA {
+        int id PK
+        int student_id FK
+        int uopz_id FK
+        int zaklad_id FK
+        date data_rozpoczecia
+        date data_zakonczenia
+        int liczba_dni
+        string status
+        datetime created_at
+        datetime updated_at
+    }
+
+    WPIS_DZIENNIKA {
+        int id PK
+        int praktyka_id FK
+        date data_wpisu
+        text opis_prac
+        bool potwierdzony
+        datetime potwierdzone_at
+        datetime created_at
+    }
+
+    WPIS_EFEKT {
+        int wpis_id FK
+        int efekt_id FK
+    }
+
+    EFEKT_UCZENIA {
+        int id PK
+        string kod
+        text opis
+    }
+
+    DOKUMENT {
+        int id PK
+        int praktyka_id FK
+        string typ
+        text zawartosc_json
+        string status
+        text uwagi
+        datetime created_at
+        datetime updated_at
+    }
+
+    OCENA_KONCOWA {
+        int id PK
+        int praktyka_id FK
+        float ocena_e
+        float ocena_s
+        float ocena_u
+        float ocena_z
+        float ocena_k
+        date data_egzaminu
+        datetime created_at
+    }
+
+    HOSPITACJA {
+        int id PK
+        int praktyka_id FK
+        int uopz_id FK
+        date data_wizyty
+        text notatki
+        datetime created_at
+    }
+
+    WNIOSEK_ZALICZENIE {
+        int id PK
+        int student_id FK
+        int dyrektor_id FK
+        text uzasadnienie
+        string typ_podstawy
+        string status
+        text decyzja_opis
+        datetime created_at
+        datetime updated_at
+    }
+
+    AUDIT_LOG {
+        int id PK
+        int uzytkownik_id FK
+        string akcja
+        string tabela
+        int rekord_id
+        datetime created_at
+    }
+
+    UZYTKOWNIK ||--o{ PRAKTYKA : ""
+    UZYTKOWNIK ||--o{ PRAKTYKA : ""
+    ZAKLAD ||--o{ PRAKTYKA : ""
+    PRAKTYKA ||--o{ WPIS_DZIENNIKA : ""
+    WPIS_DZIENNIKA ||--o{ WPIS_EFEKT : ""
+    EFEKT_UCZENIA ||--o{ WPIS_EFEKT : ""
+    PRAKTYKA ||--o{ DOKUMENT : ""
+    PRAKTYKA ||--|| OCENA_KONCOWA : ""
+    PRAKTYKA ||--o{ HOSPITACJA : ""
+    UZYTKOWNIK ||--o{ HOSPITACJA : ""
+    UZYTKOWNIK ||--o{ WNIOSEK_ZALICZENIE : ""
+    UZYTKOWNIK ||--o{ AUDIT_LOG : ""
+```
