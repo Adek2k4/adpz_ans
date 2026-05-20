@@ -1,6 +1,6 @@
 # System obslugi praktyk
 
-Prosta aplikacja Flask do obslugi praktyk zawodowych. Zawiera podstawowe strony oraz formularz zwracajacy JSON i zapisujacy dane do pliku.
+Prosta aplikacja Flask do obslugi praktyk zawodowych. Zawiera podstawowe strony oraz formularz zwracajacy JSON, zapisujacy dane do pliku i dziennik praktyk z lista wpisow.
 
 ## Wymagania
 
@@ -31,6 +31,8 @@ Aplikacja bedzie dostepna pod http://127.0.0.1:5000
 - Formularz: /formularz
   - GET zwraca formularz
   - POST zwraca JSON i zapisuje dane do data/submissions.json
+  - Dziennik praktyk jako lista wpisow (data, activity, hours) obslugiwany przez request.form.getlist
+  - Dynamiczne dodawanie i usuwanie wierszy (JavaScript)
 
 ## Struktura
 
