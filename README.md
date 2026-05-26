@@ -53,13 +53,61 @@ MICROSOFT_REDIRECT_URI=http://127.0.0.1:5000/auth/callback
   - Dziennik praktyk jako lista wpisow (data, activity, hours) obslugiwany przez request.form.getlist
   - Dynamiczne dodawanie i usuwanie wierszy (JavaScript)
 - Logowanie Microsoft (OAuth2) + profil uzytkownika i role
+- REST API: /api/students, /api/internships, /api/documents
+
+## API (REST)
+
+Endpointy:
+
+- GET /api/students
+- POST /api/students
+- GET /api/students/<id>
+- PUT/PATCH /api/students/<id>
+- DELETE /api/students/<id>
+
+- GET /api/internships
+- POST /api/internships
+- GET /api/internships/<id>
+- PUT/PATCH /api/internships/<id>
+- DELETE /api/internships/<id>
+
+- GET /api/documents
+- POST /api/documents
+- GET /api/documents/<id>
+- PUT/PATCH /api/documents/<id>
+- DELETE /api/documents/<id>
+
+Filtrowanie:
+
+- /api/internships?student_id=1
+- /api/documents?internship_id=1
+
+Przyklady (curl):
+
+```
+curl -X POST http://127.0.0.1:5000/api/students \
+  -H "Content-Type: application/json" \
+  -d "{\"name\": \"Jan Kowalski\", \"email\": \"jan@example.com\"}"
+
+curl -X POST http://127.0.0.1:5000/api/internships \
+  -H "Content-Type: application/json" \
+  -d "{\"student_id\": 1, \"company\": \"Tech Sp. z o.o.\", \"start_date\": \"2026-06-01\", \"end_date\": \"2026-09-30\", \"status\": \"active\"}"
+
+curl -X POST http://127.0.0.1:5000/api/documents \
+  -H "Content-Type: application/json" \
+  -d "{\"internship_id\": 1, \"type\": \"report\", \"status\": \"draft\", \"notes\": \"Wersja robocza\"}"
+```
 
 ## Struktura
 
 - app.py
+- api/routes.py
 - requirements.txt
 - .env.example
 - templates/
 - static/styles.css
 - data/submissions.json
+- data/api_students.json
+- data/api_internships.json
+- data/api_documents.json
 - data/app.db (tworzony automatycznie)

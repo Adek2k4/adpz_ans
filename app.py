@@ -20,6 +20,8 @@ from flask_login import (
     logout_user,
 )
 
+from api.routes import api_bp
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -42,6 +44,8 @@ app.config["MICROSOFT_REDIRECT_URI"] = os.getenv(
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 login_manager.login_message = "Zaloguj sie, aby kontynuowac."
+
+app.register_blueprint(api_bp)
 
 oauth = OAuth(app)
 oauth.register(
