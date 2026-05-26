@@ -10,15 +10,31 @@
     <header>
       <div class="container header-inner">
         <div class="brand">System obslugi praktyk</div>
-        <nav>
-          <a href="/">Start</a>
-          <a href="/kontakt">Kontakt</a>
-          <a href="/hobby">Zainteresowania</a>
-          <a href="/formularz">Formularz</a>
-        </nav>
+        <div class="nav-group">
+          <nav>
+            <a href="/">Start</a>
+            <a href="/kontakt">Kontakt</a>
+            <a href="/hobby">Zainteresowania</a>
+            <a href="/formularz">Formularz</a>
+            {% if current_user.is_authenticated %}
+              <a href="/profil">Profil</a>
+              <a href="/logout">Wyloguj</a>
+            {% else %}
+              <a href="/login">Logowanie</a>
+            {% endif %}
+          </nav>
+          {% if current_user.is_authenticated %}
+            <div class="user-pill">
+              {{ current_user.name }} ({{ current_user.role }})
+            </div>
+          {% endif %}
+        </div>
       </div>
     </header>
     <main class="container">
+      {% if notice %}
+        <div class="notice">{{ notice }}</div>
+      {% endif %}
       {% block content %}{% endblock %}
     </main>
     <footer>

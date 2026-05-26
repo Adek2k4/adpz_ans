@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h1>Logowanie</h1>
+  <div class="card auth-card">
+    <p>Logowanie przez konto Microsoft zapewnia dostep do profilu i rol.</p>
+    {% if error %}
+      <div class="notice error">{{ error }}</div>
+      <p class="note">Dodaj dane do pliku .env i zrestartuj aplikacje.</p>
+    {% else %}
+      <p class="note">Po zalogowaniu ustaw role w profilu.</p>
+      <a class="button-link" href="/login/microsoft">Zaloguj przez Microsoft</a>
+    {% endif %}
+  </div>
+{% endblock %}

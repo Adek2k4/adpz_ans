@@ -1,0 +1,5 @@
+Flask
+Flask-Login
+Authlib
+python-dotenv
+requests

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h1>Profil</h1>
+  <div class="profile-grid">
+    <div class="card">
+      <h2>Dane konta</h2>
+      <p><strong>Imie i nazwisko:</strong> {{ current_user.name }}</p>
+      <p><strong>Email:</strong> {{ current_user.email }}</p>
+      <p><strong>Rola:</strong> <span class="tag">{{ current_user.role }}</span></p>
+    </div>
+    <div class="card">
+      <h2>Ustaw role</h2>
+      {% if current_user.first_login %}
+        <p class="note">To Twoje pierwsze logowanie. Wybierz role.</p>
+      {% endif %}
+      {% if error %}
+        <div class="notice error">{{ error }}</div>
+      {% endif %}
+      <form method="post">
+        <label for="role">Rola</label>
+        <select id="role" name="role" required>
+          {% for role in roles %}
+            <option value="{{ role }}" {% if role == current_user.role %}selected{% endif %}>{{ role }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit">Zapisz role</button>
+      </form>
+    </div>
+  </div>
+{% endblock %}
