@@ -15,6 +15,8 @@ FILES = {
     "students": "api_students.json",
     "internships": "api_internships.json",
     "documents": "api_documents.json",
+    "journal_entries": "api_journal_entries.json",
+    "effects": "api_effects.json",
 }
 
 
@@ -294,4 +296,143 @@ def documents_resource(item_id):
             item[key] = payload[key]
 
     _save_items("documents", items)
+    return jsonify({"data": item})
+
+
+@api_bp.route("/api/journal-entries", methods=["GET", "POST"])
+def journal_entries_collection():
+    if request.method == "GET":
+        items = _load_items("journal_entries")
+        items = _filter_by_query(items, "internship_id", "internship_id")
+        return jsonify({"data": items})
+
+    payload, error = _get_payload()
+    if error:
+        return error
+
+    errors = _validate_journal_entry(payload)
+    if errors:
+        return _json_error("Bledne dane.", 400, errors)
+
+    items = _load_items("journal_entries")
+    item = {
+        "id": _next_id(items),
+        "internship_id": int(payload["internship_id"]),
+        "date": payload["date"],
+        "activity": payload["activity"].strip(),
+        "hours": int(payload["hours"]),
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    }
+    items.append(item)
+    _save_items("journal_entries", items)
+    return jsonify({"data": item}), 201
+
+
+@api_bp.route("/api/journal-entries/<int:item_id>", methods=["GET", "PUT", "PATCH", "DELETE"])
+def journal_entries_resource(item_id):
+    items = _load_items("journal_entries")
+    item = next((entry for entry in items if entry.get("id") == item_id), None)
+    if not item:
+        return _json_error("Nie znaleziono wpisu dziennika.", 404)
+
+    if request.method == "GET":
+        return jsonify({"data": item})
+
+    if request.method == "DELETE":
+        items = [entry for entry in items if entry.get("id") != item_id]
+        _save_items("journal_entries", items)
+        return jsonify({"ok": True})
+
+    payload, error = _get_payload()
+    if error:
+        return error
+
+    partial = request.method == "PATCH"
+    errors = _validate_journal_entry(payload, partial=partial)
+    if errors:
+        return _json_error("Bledne dane.", 400, errors)
+
+    if "internship_id" in payload:
+        item["internship_id"] = int(payload["internship_id"])
+    if "date" in payload:
+        item["date"] = payload["date"]
+    if "activity" in payload:
+        item["activity"] = payload["activity"].strip()
+    if "hours" in payload:
+        item["hours"] = int(payload["hours"])
+
+    _save_items("journal_entries", items)
+    return jsonify({"data": item})
+
+
+@api_bp.route("/api/effects", methods=["GET", "POST"])
+def effects_collection():
+    if request.method == "GET":
+        items = _load_items("effects")
+        items = _filter_by_query(items, "internship_id", "internship_id")
+        return jsonify({"data": items})
+
+    payload, error = _get_payload()
+    if error:
+        return error
+
+    errors = _validate_effect(payload)
+    if errors:
+        return _json_error("Bledne dane.", 400, errors)
+
+    achieved_value = payload.get("achieved", False)
+    if not isinstance(achieved_value, bool):
+        achieved_value = str(achieved_value).lower() in ("true", "1")
+
+    items = _load_items("effects")
+    item = {
+        "id": _next_id(items),
+        "internship_id": int(payload["internship_id"]),
+        "code": payload["code"].strip(),
+        "description": payload["description"].strip(),
+        "achieved": achieved_value,
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    }
+    items.append(item)
+    _save_items("effects", items)
+    return jsonify({"data": item}), 201
+
+
+@api_bp.route("/api/effects/<int:item_id>", methods=["GET", "PUT", "PATCH", "DELETE"])
+def effects_resource(item_id):
+    items = _load_items("effects")
+    item = next((entry for entry in items if entry.get("id") == item_id), None)
+    if not item:
+        return _json_error("Nie znaleziono efektu.", 404)
+
+    if request.method == "GET":
+        return jsonify({"data": item})
+
+    if request.method == "DELETE":
+        items = [entry for entry in items if entry.get("id") != item_id]
+        _save_items("effects", items)
+        return jsonify({"ok": True})
+
+    payload, error = _get_payload()
+    if error:
+        return error
+
+    partial = request.method == "PATCH"
+    errors = _validate_effect(payload, partial=partial)
+    if errors:
+        return _json_error("Bledne dane.", 400, errors)
+
+    if "internship_id" in payload:
+        item["internship_id"] = int(payload["internship_id"])
+    if "code" in payload:
+        item["code"] = payload["code"].strip()
+    if "description" in payload:
+        item["description"] = payload["description"].strip()
+    if "achieved" in payload:
+        achieved_value = payload.get("achieved")
+        if not isinstance(achieved_value, bool):
+            achieved_value = str(achieved_value).lower() in ("true", "1")
+        item["achieved"] = achieved_value
+
+    _save_items("effects", items)
     return jsonify({"data": item})

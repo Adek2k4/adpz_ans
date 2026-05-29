@@ -54,6 +54,7 @@ MICROSOFT_REDIRECT_URI=http://127.0.0.1:5000/auth/callback
   - Dynamiczne dodawanie i usuwanie wierszy (JavaScript)
 - Logowanie Microsoft (OAuth2) + profil uzytkownika i role
 - REST API: /api/students, /api/internships, /api/documents
+- Frontend: panel /dashboard z formularzami i lista danych z API
 
 ## API (REST)
 
@@ -77,10 +78,35 @@ Endpointy:
 - PUT/PATCH /api/documents/<id>
 - DELETE /api/documents/<id>
 
+- GET /api/journal-entries
+- POST /api/journal-entries
+- GET /api/journal-entries/<id>
+- PUT/PATCH /api/journal-entries/<id>
+- DELETE /api/journal-entries/<id>
+
+- GET /api/effects
+- POST /api/effects
+- GET /api/effects/<id>
+- PUT/PATCH /api/effects/<id>
+- DELETE /api/effects/<id>
+
 Filtrowanie:
 
 - /api/internships?student_id=1
 - /api/documents?internship_id=1
+- /api/journal-entries?internship_id=1
+- /api/effects?internship_id=1
+
+## Frontend (panel)
+
+Panel pod adresem `/dashboard` korzysta z REST API i pozwala:
+
+- dodawac studentow
+- tworzyc praktyki
+- dodawac wpisy dziennika
+- przypisywac efekty uczenia
+
+Wszystkie operacje sa wykonywane przez fetch do endpointow API i wyswietlaja komunikaty o bledach.
 
 Przyklady (curl):
 
@@ -105,9 +131,13 @@ curl -X POST http://127.0.0.1:5000/api/documents \
 - requirements.txt
 - .env.example
 - templates/
+- templates/dashboard.html
 - static/styles.css
+- static/js/dashboard.js
 - data/submissions.json
 - data/api_students.json
 - data/api_internships.json
 - data/api_documents.json
+- data/api_journal_entries.json
+- data/api_effects.json
 - data/app.db (tworzony automatycznie)

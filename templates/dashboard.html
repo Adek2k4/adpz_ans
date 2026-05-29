@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h1>Panel uzytkownika</h1>
+  <p class="lead">Panel laczy sie z REST API i pozwala zarzadzac danymi praktyk.</p>
+
+  <div class="dashboard-grid">
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Studenci</h2>
+        <span class="panel-meta">Dodaj i przegladaj studentow</span>
+      </div>
+      <form id="student-form">
+        <div class="form-grid">
+          <div>
+            <label for="student-name">Imie i nazwisko</label>
+            <input id="student-name" name="name" type="text" required>
+          </div>
+          <div>
+            <label for="student-email">Email</label>
+            <input id="student-email" name="email" type="email" required>
+          </div>
+        </div>
+        <button type="submit">Dodaj studenta</button>
+      </form>
+      <div class="notice is-hidden" data-message="student"></div>
+      <div class="list" id="student-list"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Praktyki</h2>
+        <span class="panel-meta">Tworzenie praktyk dla studentow</span>
+      </div>
+      <form id="internship-form">
+        <div class="form-grid">
+          <div>
+            <label for="internship-student">Student</label>
+            <select id="internship-student" name="student_id" data-student-select required>
+              <option value="">Wybierz studenta</option>
+            </select>
+          </div>
+          <div>
+            <label for="internship-company">Zaklad pracy</label>
+            <input id="internship-company" name="company" type="text" required>
+          </div>
+          <div>
+            <label for="internship-start">Data rozpoczecia</label>
+            <input id="internship-start" name="start_date" type="date" required>
+          </div>
+          <div>
+            <label for="internship-end">Data zakonczenia</label>
+            <input id="internship-end" name="end_date" type="date" required>
+          </div>
+          <div>
+            <label for="internship-status">Status</label>
+            <select id="internship-status" name="status" required>
+              <option value="draft">draft</option>
+              <option value="submitted">submitted</option>
+              <option value="active">active</option>
+              <option value="completed">completed</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit">Dodaj praktyke</button>
+      </form>
+      <div class="notice is-hidden" data-message="internship"></div>
+      <div class="list" id="internship-list"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Dziennik praktyk</h2>
+        <span class="panel-meta">Dodawanie wpisow dziennika</span>
+      </div>
+      <form id="journal-form">
+        <div class="form-grid">
+          <div>
+            <label for="journal-internship">Praktyka</label>
+            <select id="journal-internship" name="internship_id" data-internship-select required>
+              <option value="">Wybierz praktyke</option>
+            </select>
+          </div>
+          <div>
+            <label for="journal-date">Data</label>
+            <input id="journal-date" name="date" type="date" required>
+          </div>
+          <div>
+            <label for="journal-activity">Czynnosc</label>
+            <input id="journal-activity" name="activity" type="text" required>
+          </div>
+          <div>
+            <label for="journal-hours">Godziny</label>
+            <input id="journal-hours" name="hours" type="number" min="1" required>
+          </div>
+        </div>
+        <button type="submit">Dodaj wpis</button>
+      </form>
+      <div class="notice is-hidden" data-message="journal"></div>
+      <div class="list" id="journal-list"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Efekty uczenia</h2>
+        <span class="panel-meta">Przypisywanie efektow do praktyk</span>
+      </div>
+      <form id="effect-form">
+        <div class="form-grid">
+          <div>
+            <label for="effect-internship">Praktyka</label>
+            <select id="effect-internship" name="internship_id" data-internship-select required>
+              <option value="">Wybierz praktyke</option>
+            </select>
+          </div>
+          <div>
+            <label for="effect-code">Kod efektu</label>
+            <input id="effect-code" name="code" type="text" placeholder="E01" required>
+          </div>
+          <div>
+            <label for="effect-description">Opis</label>
+            <input id="effect-description" name="description" type="text" required>
+          </div>
+          <div>
+            <label>
+              <input id="effect-achieved" name="achieved" type="checkbox">
+              Osiagniety
+            </label>
+          </div>
+        </div>
+        <button type="submit">Dodaj efekt</button>
+      </form>
+      <div class="notice is-hidden" data-message="effect"></div>
+      <div class="list" id="effect-list"></div>
+    </section>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}" defer></script>
+{% endblock %}

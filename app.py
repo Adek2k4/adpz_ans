@@ -319,6 +319,11 @@ def index():
     return render_template("index.html", title="Start")
 
 
+@app.route("/dashboard")
+def dashboard():
+    return render_template("dashboard.html", title="Panel")
+
+
 @app.route("/kontakt")
 def kontakt():
     return render_template("kontakt.html", title="Kontakt")
