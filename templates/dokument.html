@@ -1,0 +1,799 @@
+{% extends "base.html" %}
+{% block content %}
+
+{# ── helpers ─────────────────────────────────────────────── #}
+{% macro fi(name, label, val='', type='text', req=False, force_readonly=False) %}
+<div class="field">
+  <label>{{ label }}</label>
+  <input name="{{ name }}" type="{{ type }}" value="{{ val }}"
+    {% if not can_edit or force_readonly %}readonly{% endif %}
+    {% if req and can_edit and not force_readonly %}required{% endif %}>
+</div>
+{% endmacro %}
+
+{% macro ft(name, label, val='', rows=3) %}
+<div class="field">
+  <label>{{ label }}</label>
+  <textarea name="{{ name }}" rows="{{ rows }}"
+    {% if not can_edit %}readonly{% endif %}>{{ val }}</textarea>
+</div>
+{% endmacro %}
+
+{% macro fsel(name, label, val='', options=[]) %}
+<div class="field">
+  <label>{{ label }}</label>
+  <select name="{{ name }}" {% if not can_edit %}disabled{% endif %}>
+    <option value="">– wybierz –</option>
+    {% for o in options %}<option value="{{ o }}" {% if val|string == o|string %}selected{% endif %}>{{ o }}</option>{% endfor %}
+  </select>
+</div>
+{% endmacro %}
+
+{#
+  fpsig – signature slot macro
+  field       : form field name (hidden input)
+  label       : display label
+  val         : existing signature text (or '')
+  signer_role : 'dyrektor' | 'zopz' | 'uopz' | 'student'
+#}
+{% macro fpsig(field, label, val, signer_role) %}
+{% set can_sign = can_edit and current_user.role == signer_role %}
+<div class="podpis-slot">
+  <div class="podpis-slot-label">{{ label }}</div>
+  {% if val %}
+    <pre class="podpis-signed">{{ val }}</pre>
+  {% elif can_sign %}
+    <input type="hidden" name="{{ field }}" value="">
+    <button type="button" class="js-sign-btn btn-sign"
+            data-field="{{ field }}"
+            data-name="{{ current_user.name }}">Podpisz</button>
+  {% else %}
+    <span class="podpis-waiting">Oczekuje na podpis</span>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# ── page header ─────────────────────────────────────────── #}
+<div class="doc-breadcrumb">
+  <a href="/dashboard">← Panel</a>
+  <span class="breadcrumb-sep">/</span>
+  <span>{{ typ_label }}</span>
+</div>
+
+<div class="doc-meta-bar">
+  <div>
+    <strong>Student:</strong> {{ praktyka.student_name }} &bull;
+    <strong>Zakład:</strong> {{ praktyka.zaklad_nazwa }} &bull;
+    <strong>Okres:</strong> {{ praktyka.data_rozpoczecia }} – {{ praktyka.data_zakonczenia }}
+  </div>
+  {% if updated_at %}
+    <div class="doc-updated">Ostatnio zapisano: {{ updated_at[:19]|replace('T',' ') }}</div>
+  {% endif %}
+</div>
+
+{% if not can_edit %}
+  <div class="notice">Ten dokument jest dostępny tylko do odczytu dla Twojej roli.</div>
+{% endif %}
+
+{# ── form wrapper ─────────────────────────────────────────── #}
+{% if can_edit %}
+<form id="doc-form" class="doc-form"
+      data-api-url="/api/praktyki/{{ praktyka.id }}/dokumenty/{{ typ }}"
+      data-typ="{{ typ }}">
+{% else %}
+<div class="doc-form readonly-form">
+{% endif %}
+
+<h2>{{ typ_label }}</h2>
+
+{# ══════════════════════════════════════════════════════════ #}
+{% if typ == 'zal1' %}
+{# ── zał1: Porozumienie ──────────────────────────────────── #}
+{% set can_edit_zopz = can_edit and current_user.role == 'zopz' %}
+{% set can_edit_dyr  = can_edit and current_user.role == 'dyrektor' %}
+
+<p class="doc-static">
+  <strong>Akademia Nauk Stosowanych w Elblągu</strong>, ul. Wojska Polskiego 1, 82-300 Elbląg
+  (zwana dalej „Uczelnią") – z jednej strony,<br>
+  a <strong>{{ praktyka.zaklad_nazwa }}</strong> (zwany dalej „Zakładem pracy") – z drugiej strony.
+</p>
+
+{# ── Część 1: Zakład (wypełnia ZOPZ) ── #}
+<div class="doc-section-card {% if data.podpis_zaklad %}section-signed{% endif %}">
+  <h3>
+    Strona zakładu pracy
+    {% if data.podpis_zaklad %}<span class="signed-badge">✓ podpisano</span>{% endif %}
+  </h3>
+  <div class="field-group">
+    <div class="field">
+      <label>Imię i nazwisko reprezentanta zakładu</label>
+      <input name="repr_zakladu" value="{{ data.repr_zakladu or praktyka.zopz_name }}"
+             {% if not can_edit_zopz %}readonly{% endif %}>
+    </div>
+    <div class="field">
+      <label>Stanowisko</label>
+      <input name="stanowisko_zakladu" value="{{ data.stanowisko_zakladu or '' }}"
+             {% if not can_edit_zopz %}readonly{% endif %}>
+    </div>
+  </div>
+  <div class="podpisy-row">
+    {{ fpsig('podpis_zaklad', 'Podpis zakładu pracy (ZOPZ)', data.podpis_zaklad or '', 'zopz') }}
+  </div>
+  {% if not data.podpis_zaklad and current_user.role == 'dyrektor' %}
+    <p class="note">⏳ Oczekuje na wypełnienie i podpis przez ZOPZu.</p>
+  {% endif %}
+</div>
+
+{# ── Część 2: Uczelnia (wypełnia dyrektor, po podpisie ZOPZ) ── #}
+<div class="doc-section-card {% if data.podpis_uczelnia %}section-signed{% endif %}">
+  <h3>
+    Strona uczelni
+    {% if data.podpis_uczelnia %}<span class="signed-badge">✓ podpisano</span>{% endif %}
+  </h3>
+  <div class="field-group">
+    <div class="field">
+      <label>Numer porozumienia</label>
+      <input name="numer" value="{{ data.numer or '' }}"
+             {% if not can_edit_dyr %}readonly{% endif %}>
+    </div>
+    <div class="field">
+      <label>Data zawarcia porozumienia</label>
+      <input readonly value="{{ data.data or '' }}"
+             placeholder="uzupełniana automatycznie przy podpisie dyrektora">
+    </div>
+  </div>
+  <div class="field-group">
+    <div class="field">
+      <label>Imię i nazwisko reprezentanta uczelni</label>
+      <input name="repr_uczelni" value="{{ data.repr_uczelni or praktyka.uopz_name }}"
+             {% if not can_edit_dyr %}readonly{% endif %}>
+    </div>
+    <div class="field">
+      <label>Stanowisko</label>
+      <input name="stanowisko_uczelni" value="{{ data.stanowisko_uczelni or '' }}"
+             {% if not can_edit_dyr %}readonly{% endif %}>
+    </div>
+  </div>
+  <div class="podpisy-row">
+    {{ fpsig('podpis_uczelnia', 'Podpis uczelni (Dyrektor/Prorektor)', data.podpis_uczelnia or '', 'dyrektor') }}
+  </div>
+  {% if not data.podpis_zaklad and current_user.role == 'dyrektor' %}
+    <p class="note">⏳ Dyrektor podpisuje po złożeniu podpisu przez ZOPZ.</p>
+  {% endif %}
+</div>
+
+{# ── Skierowanie studenta ── #}
+<h3>Skierowanie studenta</h3>
+<table class="doc-table">
+  <thead><tr><th>Lp.</th><th>Imię i nazwisko</th><th>Termin praktyki</th><th>Wymiar</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>{{ praktyka.student_name }}</td>
+      <td>{{ praktyka.data_rozpoczecia }} – {{ praktyka.data_zakonczenia }}</td>
+      <td>120 dni roboczych (960 h)</td>
+    </tr>
+  </tbody>
+</table>
+
+{# ══════════════════════════════════════════════════════════ #}
+{% elif typ == 'zal2' %}
+{# ── zał2: Program praktyki ──────────────────────────────── #}
+<div class="doc-static-block">
+  <h3>A. Etap pierwszy – rozpoczęcie praktyki</h3>
+  <ol>
+    <li>Czynności organizacyjne, szkolenie BHP i ppoż.</li>
+    <li>Zapoznanie się z zakresem działania zakładu pracy ze szczególnym uwzględnieniem stanowisk informatycznych.</li>
+    <li>Zapoznanie z projektami realizowanymi przez firmę, stosowanymi technologiami informatycznymi.</li>
+  </ol>
+  <h3>B. Etap drugi – praca na stanowisku</h3>
+  <p>Praca na stanowisku, wykonywanie prac i projektów informatycznych tak aby osiągnąć efekty uczenia się (E01–E13).</p>
+  <h3>C. Etap trzeci – zakończenie praktyki</h3>
+  <ol>
+    <li>W trakcie praktyki student prowadzi „Dzienniczek praktyki". Wpisy powinny być potwierdzone przez ZOPZa.</li>
+    <li>Na „Karcie praktyki zawodowej" kierownik zakładu pracy potwierdza odbycie praktyki, a opiekun zakładowy wystawia ocenę.</li>
+    <li>ZOPZ potwierdza osiągnięcie przez praktykanta efektów uczenia się.</li>
+  </ol>
+</div>
+
+<div class="podpisy-row">
+  {{ fpsig('podpis_zakladu',   'Podpis zakładu pracy (ZOPZ)',          data.podpis_zakladu   or '', 'zopz') }}
+  {{ fpsig('podpis_dyrektora', 'Podpis dyrektora instytutu',           data.podpis_dyrektora or '', 'dyrektor') }}
+</div>
+
+{# ══════════════════════════════════════════════════════════ #}
+{% elif typ == 'zal2a' %}
+{# ── zał2a: Program i harmonogram ───────────────────────── #}
+{% set can_edit_harm = can_edit and current_user.role == 'zopz' %}
+
+<div class="field-group">
+  <div class="field"><label>Student</label><input readonly value="{{ praktyka.student_name }}"></div>
+  <div class="field"><label>Miejsce praktyki</label><input readonly value="{{ praktyka.zaklad_nazwa }}"></div>
+  <div class="field"><label>Termin od</label><input readonly value="{{ praktyka.data_rozpoczecia }}"></div>
+  <div class="field"><label>Termin do</label><input readonly value="{{ praktyka.data_zakonczenia }}"></div>
+</div>
+
+<h3>Program praktyki – efekty kształcenia</h3>
+<div class="table-wrap">
+  <table class="doc-table zal2a-table">
+    <thead>
+      <tr>
+        <th style="width:3rem">Nr</th>
+        <th>Efekt kształcenia</th>
+        <th style="width:32%">Dział / przykładowe prace wykonywane przez praktykanta</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for nr, opis in efekty_uczenia %}
+        {% set ns = namespace(ef_val='') %}
+        {% if data.efekty %}
+          {% for ef in data.efekty %}
+            {% if ef.nr == nr %}{% set ns.ef_val = ef.dzial_czynnosci %}{% endif %}
+          {% endfor %}
+        {% endif %}
+        <tr>
+          <td>{{ nr }}</td>
+          <td class="small-text">{{ opis }}</td>
+          <td><input name="ef_{{ nr }}" value="{{ ns.ef_val }}" {% if not can_edit_harm %}readonly{% endif %}></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h3>Harmonogram praktyki</h3>
+<div class="table-wrap">
+  <table class="doc-table" id="harm-table">
+    <thead>
+      <tr>
+        <th style="width:2rem">Lp.</th>
+        <th>Dział / komórka (miejsce odbywania praktyki)</th>
+        <th style="width:9rem">Planowana liczba dni roboczych</th>
+        {% if can_edit_harm %}<th style="width:3rem"></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody id="harm-tbody">
+      {% set harm_rows = data.harmonogram if (data.harmonogram and data.harmonogram|length > 0) else [{}] %}
+      {% for hrow in harm_rows %}
+        <tr>
+          <td class="harm-idx">{{ loop.index }}</td>
+          <td><input name="harm_dzial_{{ loop.index }}" value="{{ hrow.dzial or '' }}" {% if not can_edit_harm %}readonly{% endif %}></td>
+          <td><input name="harm_dni_{{ loop.index }}"   value="{{ hrow.dni   or '' }}" type="number" min="0" {% if not can_edit_harm %}readonly{% endif %}></td>
+          {% if can_edit_harm %}<td><button type="button" class="js-rm-row btn-del-row">✕</button></td>{% endif %}
+        </tr>
+      {% endfor %}
+      <tr class="total-row">
+        <td colspan="2"><strong>Łącznie (wymagane: 120)</strong></td>
+        <td><strong id="harm-total">–</strong></td>
+        {% if can_edit_harm %}<td></td>{% endif %}
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% if can_edit_harm %}
+<button type="button" id="btn-add-row" style="margin-bottom:16px">+ Dodaj wiersz</button>
+{% endif %}
+
+<div class="field">
+  <label>Data uzgodnienia</label>
+  <input readonly value="{{ data.data_uzgodnienia or '' }}"
+         placeholder="uzupełniana automatycznie po podpisie UOPZu">
+</div>
+
+<div class="podpisy-row">
+  {{ fpsig('podpis_zopz',    'Podpis ZOPZu',    data.podpis_zopz    or '', 'zopz') }}
+  {{ fpsig('podpis_student', 'Podpis studenta', data.podpis_student or '', 'student') }}
+  {{ fpsig('podpis_uopz',    'Podpis UOPZu',    data.podpis_uopz    or '', 'uopz') }}
+</div>
+
+{# ══════════════════════════════════════════════════════════ #}
+{% elif typ == 'zal3_1' %}
+{# ── zał3.1: Skierowanie na praktykę ────────────────────── #}
+<p class="doc-static">
+  Na podstawie porozumienia nr
+  <strong>{{ zal1.numer or data.nr_porozumienia or '…' }}</strong>,
+  z dnia <strong>{{ zal1.data or data.data_porozumienia or '…' }}</strong>,
+  kieruję niżej wymienionego studenta na praktykę zawodową do zakładu pracy:
+</p>
+<p class="doc-static"><strong>{{ praktyka.zaklad_nazwa }}</strong></p>
+
+{# Hidden inputs to carry zal1 values into saved data #}
+<input type="hidden" name="nr_porozumienia"   value="{{ zal1.numer or data.nr_porozumienia or '' }}">
+<input type="hidden" name="data_porozumienia" value="{{ zal1.data  or data.data_porozumienia or '' }}">
+
+<div class="field-group">
+  <div class="field"><label>Imię i nazwisko studenta</label><input readonly value="{{ praktyka.student_name }}"></div>
+  <div class="field"><label>Kierunek</label><input readonly value="Informatyka"></div>
+</div>
+<div class="field-group">
+  {{ fsel('tryb_studiow', 'Tryb studiów', data.tryb_studiow or '', ['stacjonarne','niestacjonarne']) }}
+  <div class="field"><label>Uczelniany opiekun praktyki (UOPZ)</label><input readonly value="{{ praktyka.uopz_name }}"></div>
+</div>
+<div class="field-group">
+  <div class="field"><label>Termin od</label><input readonly value="{{ praktyka.data_rozpoczecia }}"></div>
+  <div class="field"><label>Termin do</label><input readonly value="{{ praktyka.data_zakonczenia }}"></div>
+  <div class="field">
+    <label>Data skierowania</label>
+    <input readonly value="{{ data.data_skierowania or '' }}"
+           placeholder="uzupełniana automatycznie przy podpisie dyrektora">
+  </div>
+</div>
+
+<div class="podpisy-row">
+  {{ fpsig('podpis_dyrektor', 'Dyrektor Instytutu lub osoba upoważniona', data.podpis_dyrektor or '', 'dyrektor') }}
+</div>
+
+{# ══════════════════════════════════════════════════════════ #}
+{% elif typ == 'zal3_2' %}
+{# ── zał3.2: Szkolenie BHP ──────────────────────────────── #}
+<p class="doc-static">
+  Potwierdzam zgłoszenie się studenta <strong>{{ praktyka.student_name }}</strong>
+  na praktykę w <strong>{{ praktyka.zaklad_nazwa }}</strong>.
+</p>
+
+<div class="field-group">
+  <div class="field"><label>Zakładowy opiekun praktyki (ZOPZ)</label><input readonly value="{{ praktyka.zopz_name }}"></div>
+</div>
+<div class="field-group">
+  {{ fi('stanowisko_zopz', 'Stanowisko ZOPZ w zakładzie', data.stanowisko_zopz or '') }}
+  {{ fi('funkcja_zopz',    'Funkcja / rola ZOPZ',         data.funkcja_zopz    or '') }}
+</div>
+
+<div class="podpisy-row">
+  {{ fpsig('podpis_zopz_1', 'Zakładowy opiekun praktyki (ZOPZ) – pieczęć i podpis', data.podpis_zopz_1 or '', 'zopz') }}
+  {{ fpsig('podpis_zopz_2', 'Potwierdzenie odbycia szkolenia BHP – pieczęć i podpis', data.podpis_zopz_2 or '', 'zopz') }}
+</div>
+
+{# ══════════════════════════════════════════════════════════ #}
+{% elif typ == 'zal3_3' %}
+{# ── zał3.3: Zaświadczenie odbycia praktyki ─────────────── #}
+<p class="doc-static">
+  Zaświadczam, że student <strong>{{ praktyka.student_name }}</strong>
+  odbył praktykę zawodową w <strong>{{ praktyka.zaklad_nazwa }}</strong>
+  w okresie od <strong>{{ praktyka.data_rozpoczecia }}</strong>
+  do <strong>{{ praktyka.data_zakonczenia }}</strong>
+  zgodnie z przyjętym programem.
+</p>
+{{ ft('uwagi', 'Uwagi', data.uwagi or '') }}
+
+<div class="podpisy-row">
+  {{ fpsig('podpis_zopz', 'Kierownik zakładu – pieczęć i podpis', data.podpis_zopz or '', 'zopz') }}
+</div>
+
+{# ══════════════════════════════════════════════════════════ #}
+{% elif typ == 'zal3_4' %}
+{# ── zał3.4: Ocena przebiegu praktyki (ZOPZ) ────────────── #}
+<p class="doc-static">
+  Ocena przebiegu praktyki zawodowej studenta <strong>{{ praktyka.student_name }}</strong>
+  wystawiona przez Zakładowego Opiekuna Praktyki Zawodowej.
+</p>
+<div class="field-group">
+  {{ fsel('ocena_param', 'Ocena parametryczna (skala 2–5)', data.ocena_param or '', oceny) }}
+</div>
+{{ ft('ocena_opisowa', 'Ocena opisowa', data.ocena_opisowa or '', rows=5) }}
+
+<div class="podpisy-row">
+  {{ fpsig('podpis_zopz', 'ZOPZ – data, pieczęć i podpis', data.podpis_zopz or '', 'zopz') }}
+</div>
+
+{# ══════════════════════════════════════════════════════════ #}
+{% elif typ == 'zal3_5' %}
+{# ── zał3.5: Ocena przebiegu praktyki (UOPZ) ────────────── #}
+<p class="doc-static">
+  Ocena przebiegu praktyki zawodowej studenta <strong>{{ praktyka.student_name }}</strong>
+  wystawiona przez Uczelnianego Opiekuna Praktyki Zawodowej.
+</p>
+<div class="field-group">
+  {{ fsel('ocena_param', 'Ocena parametryczna (skala 2–5)', data.ocena_param or '', oceny) }}
+</div>
+{{ ft('ocena_opisowa', 'Ocena opisowa', data.ocena_opisowa or '', rows=5) }}
+
+<div class="podpisy-row">
+  {{ fpsig('podpis_uopz', 'UOPZ – data, pieczęć i podpis', data.podpis_uopz or '', 'uopz') }}
+</div>
+
+{# ══════════════════════════════════════════════════════════ #}
+{% elif typ == 'zal3_6' %}
+{# ── zał3.6: Ocena sprawozdania ──────────────────────────── #}
+<p class="doc-static">
+  Ocena sprawozdania z praktyki zawodowej studenta <strong>{{ praktyka.student_name }}</strong>.
+</p>
+<div class="field-group">
+  {{ fsel('ocena', 'Ocena sprawozdania (skala 2–5)', data.ocena or '', oceny) }}
+</div>
+
+<div class="podpisy-row">
+  {{ fpsig('podpis_uopz', 'UOPZ – data i podpis', data.podpis_uopz or '', 'uopz') }}
+</div>
+
+{# ══════════════════════════════════════════════════════════ #}
+{% elif typ == 'zal4' %}
+{# ── zał4: Potwierdzenie efektów uczenia się ─────────────── #}
+{% set can_edit_zopz = can_edit and current_user.role == 'zopz' %}
+{% set can_edit_uopz = can_edit and current_user.role == 'uopz' %}
+
+<p class="doc-static">
+  Student/-ka: <strong>{{ praktyka.student_name }}</strong> &bull;
+  Kierunek: Informatyka &bull; Zakład: <strong>{{ praktyka.zaklad_nazwa }}</strong>
+</p>
+
+<div class="field-group">
+  <div class="field">
+    <label>Liczba godzin praktyki</label>
+    <input name="liczba_godzin" type="number" value="{{ data.liczba_godzin or 960 }}"
+      {% if not can_edit_zopz %}readonly{% endif %}>
+  </div>
+</div>
+
+<h3>Efekty uczenia się</h3>
+<div class="table-wrap">
+  <table class="doc-table">
+    <thead>
+      <tr>
+        <th style="width:3rem">Nr</th>
+        <th>Efekt uczenia się</th>
+        <th style="width:10rem">Potwierdzenie uzyskania</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for nr, opis in efekty_uczenia %}
+        {% set ef_val = data.efekty[nr] if data.efekty and nr in data.efekty else False %}
+        <tr>
+          <td>{{ nr }}</td>
+          <td class="small-text">{{ opis }}</td>
+          <td class="center">
+            {% if can_edit_zopz %}
+              <label class="toggle-label">
+                <input type="checkbox" name="ef_{{ nr }}" value="1" {% if ef_val %}checked{% endif %}> uzyskał/a
+              </label>
+            {% elif ef_val %}
+              <span class="zal-badge zal-done">uzyskał/a</span>
+            {% else %}
+              <span class="zal-badge zal-waiting">nie uzyskał/a</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="podpisy-row">
+  {{ fpsig('podpis_zopz', 'Podpis ZOPZu', data.podpis_zopz or '', 'zopz') }}
+</div>
+
+<hr class="section-divider">
+
+<h3>Opinia Uczelnianego Opiekuna Praktyki</h3>
+<div class="field">
+  <label>Opinia UOPZu</label>
+  <textarea name="opinia_uopz" rows="4"
+    {% if not can_edit_uopz %}readonly{% endif %}>{{ data.opinia_uopz or '' }}</textarea>
+</div>
+
+<div class="podpisy-row">
+  {{ fpsig('podpis_uopz', 'Podpis UOPZu', data.podpis_uopz or '', 'uopz') }}
+</div>
+
+{% if can_edit_zopz %}
+  <p class="note">Wypełniasz część ZOPZu (efekty uczenia się i podpis).</p>
+{% elif can_edit_uopz %}
+  <p class="note">Wypełniasz część UOPZu (opinia i podpis).</p>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════ #}
+{% elif typ == 'zal5' %}
+{# ── zał5: Kwestionariusz ankiety ────────────────────────── #}
+{% set skala = ['zdecydowanie tak','raczej tak','trudno powiedzieć','raczej nie','zdecydowanie nie'] %}
+{% set pytania_lista = [
+  'Poznałam/poznałem zasady funkcjonowania instytucji, w której odbywałam/odbywałem praktyki zawodowe.',
+  'Poznałam/poznałem strukturę oraz regulamin organizacyjny instytucji, w której odbywałam/odbywałem praktyki zawodowe.',
+  'Praktyki zawodowe umożliwiły mi pełną realizację ramowego programu praktyk zawodowych przewidzianego w ramach mojego kierunku studiów.',
+  'Podczas praktyk zawodowych zwracano uwagę na przestrzeganie zasad etyki i tajemnicy zawodowej.',
+  'Podczas praktyk miałam/miałem możliwość praktycznego zastosowania wiedzy teoretycznej zdobytej na zajęciach.',
+  'Praktyki zawodowe przyczyniły się do pogłębienia mojej wiedzy i umiejętności zdobytych w trakcie studiów.',
+  'Mogłem liczyć na wsparcie merytoryczne Opiekuna zakładowego praktyk.',
+  'Mogłem liczyć na wsparcie merytoryczne Opiekuna uczelnianego praktyk.',
+  'Opiekun zakładowy odpowiedzialny za praktyki zawodowe w miejscu ich odbywania potrafił prawidłowo zorganizować ich przebieg.',
+  'Podczas praktyk zawodowych miałam/miałem możliwość pozyskiwania materiałów niezbędnych do przygotowania mojej pracy dyplomowej.',
+  'Praktyki zawodowe rozwinęły moje umiejętności skutecznego komunikowania się w sytuacjach zawodowych i pracy w zespole.',
+  'Praktyki zawodowe nauczyły mnie samodzielności i odpowiedzialności podczas wykonywania pracy.',
+  'Liczba godzin realizowana w ramach praktyk zawodowych jest wystarczająca.',
+  'Czy po zakończeniu praktyki zawodowej chciałaby/chciałby Pani/Pan współpracować z instytucją, w której Pani/Pan zrealizowała/zrealizował praktykę?',
+] %}
+
+<p class="doc-static">Ankieta jest anonimowa. Prosimy zaznaczyć przy każdym pytaniu wybraną odpowiedź.</p>
+
+<div class="ankieta-list">
+  {% for pyt in pytania_lista %}
+    {% set pnum = loop.index|string %}
+    {% set cur_val = data.pytania[pnum] if data.pytania and pnum in data.pytania else '' %}
+    <div class="ankieta-item">
+      <div class="ankieta-pytanie"><span class="ankieta-nr">{{ loop.index }}.</span> {{ pyt }}</div>
+      <div class="ankieta-choices">
+        {% for s in skala %}
+          <label class="ankieta-choice {% if cur_val == s %}choice-selected{% endif %}">
+            <input type="radio" name="p{{ loop.index }}" value="{{ s }}"
+              {% if cur_val == s %}checked{% endif %}
+              {% if not can_edit %}disabled{% endif %}>
+            <span>{{ s }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+{{ ft('dodatkowe_uwagi', 'Dodatkowe uwagi dotyczące przebiegu praktyki', data.dodatkowe_uwagi or '', rows=3) }}
+
+<h3>Metryczka</h3>
+<div class="field-group">
+  {{ fi('rok_akademicki', 'Rok akademicki', data.rok_akademicki or '') }}
+  {{ fsel('forma_studiow', 'Forma studiów', data.forma_studiow or '', ['stacjonarne','niestacjonarne']) }}
+  {{ fi('semestr', 'Semestr studiów', data.semestr or '') }}
+  {{ fi('liczba_godzin', 'Liczba godzin zrealizowanej praktyki', data.liczba_godzin or '960') }}
+</div>
+
+{# ══════════════════════════════════════════════════════════ #}
+{% elif typ == 'zal7' %}
+{# ── zał7: Sprawozdanie studenta ─────────────────────────── #}
+<p class="doc-static">
+  <strong>Student:</strong> {{ praktyka.student_name }} &bull;
+  <strong>Kierunek:</strong> Informatyka &bull;
+  <strong>Rok ak.:</strong> {{ praktyka.data_rozpoczecia[:4] }}/{{ (praktyka.data_rozpoczecia[:4]|int + 1)|string }} &bull;
+  <strong>Zakład:</strong> {{ praktyka.zaklad_nazwa }}
+</p>
+
+<h3>I. Charakterystyka miejsca odbywania praktyki</h3>
+<p class="note">Krótki opis instytucji, w której odbywała się praktyka zawodowa.</p>
+{{ ft('charakterystyka', '', data.charakterystyka or '', rows=6) }}
+
+<h3>II. Opis i analiza wykonywanych prac</h3>
+<p class="note">Syntetyczny opis wykonanych prac – zadania najważniejsze zdaniem studenta.</p>
+{{ ft('opis_prac', '', data.opis_prac or '', rows=8) }}
+
+<h3>III. Wiedza i umiejętności uzyskane w trakcie praktyki</h3>
+<p class="note">Samoocena nabytych kompetencji i osiągniętych efektów uczenia się (E01–E13).</p>
+{{ ft('wiedza_umiejetnosci', '', data.wiedza_umiejetnosci or '', rows=8) }}
+
+<div class="podpisy-row">
+  {{ fpsig('podpis_student', 'Podpis studenta', data.podpis_student or '', 'student') }}
+</div>
+
+{# ══════════════════════════════════════════════════════════ #}
+{% elif typ == 'zal8' %}
+{# ── zał8: Protokół zaliczenia ───────────────────────────── #}
+<p class="doc-static">
+  <strong>Student:</strong> {{ praktyka.student_name }} &bull;
+  <strong>Zakład:</strong> {{ praktyka.zaklad_nazwa }} &bull;
+  <strong>Okres:</strong> {{ praktyka.data_rozpoczecia }} – {{ praktyka.data_zakonczenia }}
+</p>
+
+<h3>Oceny składowe</h3>
+<div class="field-group">
+  {{ fsel('ocena_S', 'Ocena sprawozdania (S)', data.ocena_S or '', oceny) }}
+  {{ fsel('ocena_U', 'Ocena UOPZu (U)',        data.ocena_U or '', oceny) }}
+  {{ fsel('ocena_Z', 'Ocena ZOPZu (Z)',        data.ocena_Z or '', oceny) }}
+</div>
+
+<h3>Pytania / mini zadania zawodowe</h3>
+<div class="table-wrap">
+  <table class="doc-table">
+    <thead><tr><th>Lp.</th><th>Pytanie / zadanie</th><th style="width:10rem">Ocena cząstkowa (2–5)</th></tr></thead>
+    <tbody>
+      {% for i in range(1, 4) %}
+        {% set mz = data.mini_zadania[loop.index0] if data.mini_zadania and loop.index0 < data.mini_zadania|length else {} %}
+        <tr>
+          <td>{{ i }}</td>
+          <td><input name="pytanie_{{ i }}" value="{{ mz.pytanie or '' }}" {% if not can_edit %}readonly{% endif %}></td>
+          <td>
+            <select name="mini_{{ i }}" {% if not can_edit %}disabled{% endif %}>
+              <option value="">–</option>
+              {% for o in oceny %}<option value="{{ o }}" {% if mz.ocena|string == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+            </select>
+          </td>
+        </tr>
+      {% endfor %}
+      <tr class="total-row">
+        <td colspan="2"><strong>Łączna ocena E (średnia arytmetyczna)</strong></td>
+        <td><strong id="ocena-E">–</strong></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="field-group">
+  <div class="field">
+    <label>Ocena końcowa K = 0.4·E + 0.1·S + 0.2·U + 0.3·Z</label>
+    <input id="ocena-K" readonly value="">
+  </div>
+  {{ fi('data_zaliczenia', 'Data zaliczenia', data.data_zaliczenia or '', type='date') }}
+</div>
+
+<h3>Skład komisji</h3>
+<div class="field-group">
+  {% for i in range(1, 5) %}
+    {% set label = ['Przewodniczący komisji','Uczelniany opiekun (UOPZ)','Członek komisji','Członek komisji'][loop.index0] %}
+    {% set val = data.sklad_komisji[loop.index0] if data.sklad_komisji and loop.index0 < data.sklad_komisji|length else '' %}
+    {{ fi('komisja_' ~ i, label, val) }}
+  {% endfor %}
+</div>
+
+<div class="podpisy-row">
+  {{ fpsig('podpis_dyrektor', 'Dyrektor Instytutu – podpis', data.podpis_dyrektor or '', 'dyrektor') }}
+</div>
+
+{% endif %}{# end of typ checks #}
+
+{# ── submit / back ───────────────────────────────────────── #}
+<div class="form-actions">
+  {% if can_edit %}
+    <button type="submit">Zapisz</button>
+  {% endif %}
+  <a href="/dashboard" class="button-link secondary">← Wróć do panelu</a>
+</div>
+
+{% if can_edit %}
+</form>
+<script>
+(function () {
+  var form = document.getElementById('doc-form');
+  if (!form) return;
+
+  // ── Save form ──────────────────────────────────────────
+  submitForm(form, form.dataset.apiUrl, 'PUT', function (res) {
+    var wasSigning = signingNow;
+    signingNow = false;
+    if (res.data && res.data.advanced) {
+      flashSuccess('Podpisano. Etap praktyki zmienił się automatycznie.');
+      setTimeout(function () { window.location.reload(); }, 900);
+    } else if (wasSigning) {
+      flashSuccess('Dokument podpisany.');
+      setTimeout(function () { window.location.reload(); }, 700);
+    } else {
+      flashSuccess('Dokument zapisany.');
+      var el = document.querySelector('.doc-updated');
+      if (el && res.data && res.data.updated_at) {
+        el.textContent = 'Ostatnio zapisano: ' + res.data.updated_at.substring(0, 19).replace('T', ' ');
+      }
+    }
+  });
+
+  // ── Signature buttons ──────────────────────────────────
+  var signingNow = false;
+  var docTyp = form.dataset.typ || '';
+
+  function validateBeforeSign(sigField) {
+    var errors = [];
+    function req(name, label) {
+      var el = form.querySelector('[name="' + name + '"]');
+      if (!el || !el.value.trim()) errors.push(label);
+    }
+    if (docTyp === 'zal1') {
+      if (sigField === 'podpis_zaklad') {
+        req('repr_zakladu', 'Reprezentant zakładu');
+      } else if (sigField === 'podpis_uczelnia') {
+        req('numer', 'Numer porozumienia');
+        req('repr_uczelni', 'Reprezentant uczelni');
+      }
+    }
+    if (docTyp === 'zal3_1') {
+      req('tryb_studiow', 'Tryb studiów');
+    }
+    if (docTyp === 'zal3_2') {
+      req('stanowisko_zopz', 'Stanowisko ZOPZ'); req('funkcja_zopz', 'Funkcja ZOPZ');
+    }
+    if (docTyp === 'zal3_4' || docTyp === 'zal3_5') {
+      req('ocena_param', 'Ocena parametryczna'); req('ocena_opisowa', 'Ocena opisowa');
+    }
+    if (docTyp === 'zal3_6') { req('ocena', 'Ocena sprawozdania'); }
+    if (docTyp === 'zal7') {
+      req('charakterystyka', 'Charakterystyka miejsca');
+      req('opis_prac', 'Opis wykonanych prac');
+      req('wiedza_umiejetnosci', 'Wiedza i umiejętności');
+    }
+    if (docTyp === 'zal8') { req('data_zaliczenia', 'Data zaliczenia'); }
+    if (docTyp === 'zal2a' && sigField === 'podpis_zopz') {
+      var hasHarm = false;
+      form.querySelectorAll('[name^="harm_dzial_"]').forEach(function (el) { if (el.value.trim()) hasHarm = true; });
+      if (!hasHarm) errors.push('Harmonogram (co najmniej 1 wiersz)');
+    }
+    return errors;
+  }
+
+  document.querySelectorAll('.js-sign-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var errs = validateBeforeSign(btn.dataset.field);
+      if (errs.length) {
+        alert('Przed podpisaniem wypełnij wymagane pola:\n• ' + errs.join('\n• '));
+        return;
+      }
+      if (!confirm('Czy na pewno chcesz podpisać ten dokument?\nPodpisu nie można cofnąć.')) return;
+      var inp = form.querySelector('[name="' + btn.dataset.field + '"]');
+      if (!inp) return;
+      var today = new Date().toISOString().slice(0, 10);
+      inp.value = 'Podpisano (' + today + ')\n' + btn.dataset.name;
+      signingNow = true;
+      form.requestSubmit ? form.requestSubmit() : form.submit();
+    });
+  });
+
+  // ── Zał2a: dynamic harmonogram ─────────────────────────
+  var tbody = document.getElementById('harm-tbody');
+  var addBtn = document.getElementById('btn-add-row');
+  if (tbody && addBtn) {
+    function reindex() {
+      var rows = Array.from(tbody.querySelectorAll('tr:not(.total-row)'));
+      rows.forEach(function (tr, i) {
+        var idx = tr.querySelector('.harm-idx');
+        if (idx) idx.textContent = i + 1;
+        var dz = tr.querySelector('[name^="harm_dzial_"]');
+        if (dz) dz.name = 'harm_dzial_' + (i + 1);
+        var dn = tr.querySelector('[name^="harm_dni_"]');
+        if (dn) dn.name = 'harm_dni_' + (i + 1);
+      });
+      updHarm();
+    }
+    function updHarm() {
+      var s = 0;
+      tbody.querySelectorAll('[name^="harm_dni_"]').forEach(function (el) { s += parseInt(el.value) || 0; });
+      var tot = document.getElementById('harm-total');
+      if (tot) tot.textContent = s;
+    }
+    tbody.querySelectorAll('[name^="harm_dni_"]').forEach(function (el) { el.addEventListener('input', updHarm); });
+    updHarm();
+
+    addBtn.addEventListener('click', function () {
+      var n = tbody.querySelectorAll('tr:not(.total-row)').length + 1;
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="harm-idx">' + n + '</td>' +
+        '<td><input name="harm_dzial_' + n + '" type="text"></td>' +
+        '<td><input name="harm_dni_' + n + '" type="number" min="0"></td>' +
+        '<td><button type="button" class="js-rm-row btn-del-row">✕</button></td>';
+      tr.querySelector('[name^="harm_dni_"]').addEventListener('input', updHarm);
+      var totalRow = tbody.querySelector('.total-row');
+      tbody.insertBefore(tr, totalRow);
+      reindex();
+    });
+
+    tbody.addEventListener('click', function (e) {
+      if (e.target.classList.contains('js-rm-row')) {
+        var row = e.target.closest('tr');
+        if (tbody.querySelectorAll('tr:not(.total-row)').length > 1) {
+          row.remove();
+          reindex();
+        }
+      }
+    });
+  }
+
+  // ── Zał8: ocena calc ───────────────────────────────────
+  var miniSels = [1, 2, 3].map(function (i) { return document.querySelector('[name="mini_' + i + '"]'); });
+  var sSel = document.querySelector('[name="ocena_S"]');
+  var uSel = document.querySelector('[name="ocena_U"]');
+  var zSel = document.querySelector('[name="ocena_Z"]');
+  if (miniSels[0]) {
+    function calcOcena() {
+      var vals = miniSels.map(function (s) { return parseFloat(s ? s.value : 0) || 0; });
+      var filled = vals.filter(function (v) { return v > 0; });
+      var E = filled.length ? filled.reduce(function (a, b) { return a + b; }, 0) / filled.length : 0;
+      var eEl = document.getElementById('ocena-E');
+      if (eEl) eEl.textContent = E ? E.toFixed(2) : '–';
+      var S = parseFloat(sSel ? sSel.value : 0) || 0;
+      var U = parseFloat(uSel ? uSel.value : 0) || 0;
+      var Z = parseFloat(zSel ? zSel.value : 0) || 0;
+      var K = (E && S && U && Z) ? (0.4 * E + 0.1 * S + 0.2 * U + 0.3 * Z) : 0;
+      var kEl = document.getElementById('ocena-K');
+      if (kEl) kEl.value = K ? K.toFixed(2) : '';
+    }
+    miniSels.concat([sSel, uSel, zSel]).forEach(function (el) { if (el) el.addEventListener('change', calcOcena); });
+    calcOcena();
+  }
+})();
+</script>
+{% else %}
+</div>
+{% endif %}
+
+{% endblock %}

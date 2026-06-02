@@ -2,14 +2,51 @@
 
 {% block content %}
   <h1>Logowanie</h1>
-  <div class="card auth-card">
-    <p>Logowanie przez konto Microsoft zapewnia dostep do profilu i rol.</p>
-    {% if error %}
-      <div class="notice error">{{ error }}</div>
-      <p class="note">Dodaj dane do pliku .env i zrestartuj aplikacje.</p>
-    {% else %}
-      <p class="note">Po zalogowaniu ustaw role w profilu.</p>
-      <a class="button-link" href="/login/microsoft">Zaloguj przez Microsoft</a>
-    {% endif %}
+  <div class="profile-grid">
+    <div class="card auth-card">
+      <h2>Logowanie Microsoft</h2>
+      <p>Logowanie przez konto Microsoft zapewnia dostep do profilu i rol.</p>
+      {% if oauth_error %}
+        <div class="notice error">{{ oauth_error }}</div>
+        <p class="note">Dodaj dane do pliku .env i zrestartuj aplikacje.</p>
+      {% else %}
+        <p class="note">Po zalogowaniu ustaw role w profilu.</p>
+        <a class="button-link" href="/login/microsoft">Zaloguj przez Microsoft</a>
+      {% endif %}
+    </div>
+
+    <div class="card auth-card">
+      <h2>Logowanie email</h2>
+      {% if error %}
+        <div class="notice error">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="/login">
+        <label for="login-email">Email</label>
+        <input id="login-email" name="email" type="email" required>
+        <label for="login-password">Haslo</label>
+        <input id="login-password" name="password" type="password" required>
+        <button type="submit">Zaloguj email</button>
+      </form>
+    </div>
+
+    <div class="card auth-card">
+      <h2>Rejestracja (email)</h2>
+      <p class="note">Konto musi zostac zatwierdzone przez dyrektora.</p>
+      <form method="post" action="/register">
+        <label for="register-name">Imie i nazwisko</label>
+        <input id="register-name" name="name" type="text" required>
+        <label for="register-email">Email</label>
+        <input id="register-email" name="email" type="email" required>
+        <label for="register-password">Haslo</label>
+        <input id="register-password" name="password" type="password" minlength="6" required>
+        <label for="register-zaklad-name">Nazwa zakladu</label>
+        <input id="register-zaklad-name" name="zaklad_name" type="text" required>
+        <label for="register-zaklad-address">Adres zakladu</label>
+        <input id="register-zaklad-address" name="zaklad_address" type="text" required>
+        <label for="register-zaklad-nip">NIP</label>
+        <input id="register-zaklad-nip" name="zaklad_nip" type="text" inputmode="numeric" pattern="\d{10}" minlength="10" maxlength="10" required>
+        <button type="submit">Utworz konto</button>
+      </form>
+    </div>
   </div>
 {% endblock %}

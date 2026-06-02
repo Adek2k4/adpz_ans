@@ -14,11 +14,7 @@ CREATE TABLE zaklad (
     nazwa                VARCHAR(256) NOT NULL,
     adres                VARCHAR(256) NOT NULL,
     nip                  VARCHAR(10)  UNIQUE,
-    opiekun_imie         VARCHAR(64)  NOT NULL,
-    opiekun_nazwisko     VARCHAR(64)  NOT NULL,
-    opiekun_stanowisko   VARCHAR(128),
-    opiekun_email        VARCHAR(128),
-    opiekun_telefon      VARCHAR(20),
+    zopz_id              INTEGER      NOT NULL REFERENCES uzytkownik(id),
     created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -29,7 +25,6 @@ CREATE TABLE praktyka (
     zaklad_id         INTEGER     NOT NULL REFERENCES zaklad(id),
     data_rozpoczecia  DATE        NOT NULL,
     data_zakonczenia  DATE        NOT NULL,
-    liczba_dni        INTEGER     NOT NULL DEFAULT 0,
     status            VARCHAR(16) NOT NULL DEFAULT 'draft'
                                   CHECK (status IN (
                                       'draft','submitted','active',

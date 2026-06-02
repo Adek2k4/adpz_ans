@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="doc-breadcrumb">
+  <a href="/dashboard">← Panel</a>
+  <span class="breadcrumb-sep">/</span>
+  <span>Dziennik praktyki</span>
+</div>
+
+<div class="doc-meta-bar">
+  <div>
+    <strong>Student:</strong> {{ praktyka.student_name }} &bull;
+    <strong>Zakład:</strong> {{ praktyka.zaklad_nazwa }} &bull;
+    <strong>Okres:</strong> {{ praktyka.data_rozpoczecia }} – {{ praktyka.data_zakonczenia }}
+  </div>
+  <div>
+    <span class="dziennik-progress-label">Postęp:</span>
+    <strong>{{ confirmed_total }}/120</strong> wpisów potwierdzonych
+    ({{ total }} dodanych)
+  </div>
+</div>
+
+<div class="dziennik-bar-wrap">
+  <div class="dziennik-bar" style="width:{{ (confirmed_total / 120 * 100)|round|int }}%"></div>
+</div>
+
+{# ── DEV: bulk fill button ─────────────────────────────── #}
+{% if dev_mode and current_user.role == 'student' and praktyka.etap == 'dziennik_aktywny' and total < 120 %}
+<button id="btn-dev-fill" class="dev-fill-btn"
+        data-api-url="/api/praktyki/{{ praktyka.id }}/dev/wypelnij_dziennik">
+  🛠 DEV: Wypełnij cały dziennik ({{ 120 - total }} brakujących wpisów)
+</button>
+{% endif %}
+
+{# ── Add entry form (student only, etap=dziennik_aktywny) ── #}
+{% if can_add %}
+<details class="panel create-panel" id="add-form-panel">
+  <summary>Dodaj wpis do dziennika (dzień {{ total + 1 }}/120)</summary>
+  <form id="form-wpis" class="create-form"
+        data-api-url="/api/praktyki/{{ praktyka.id }}/dziennik">
+    <div class="field-group">
+      <div class="field">
+        <label>Data</label>
+        <input name="data_wpisu" type="date" required>
+      </div>
+      <div class="field">
+        <label>Osoba nadzorująca (opcjonalnie)</label>
+        <input name="osoba_nadzorujaca" type="text" placeholder="imię i nazwisko">
+      </div>
+    </div>
+    <div class="field">
+      <label>Opis wykonanych prac</label>
+      <textarea name="opis_prac" rows="4" required placeholder="Opisz czynności wykonane tego dnia..."></textarea>
+    </div>
+    <div class="field">
+      <label>Numery efektów uczenia się</label>
+      <div class="efekty-checkboxes">
+        {% for nr, opis in efekty_uczenia %}
+          <label class="efekt-check-label" title="{{ opis }}">
+            <input type="checkbox" name="nr_efektow" value="{{ nr }}"> E{{ nr }}
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+    <button type="submit">Dodaj wpis</button>
+  </form>
+</details>
+{% endif %}
+
+{# ── Journal pages ─────────────────────────────────────────── #}
+{% for page in pages %}
+  <div class="dziennik-page {% if page.confirmed %}page-confirmed{% endif %}">
+    <div class="dziennik-page-header">
+      <span class="dziennik-page-title">
+        Strona {{ page.num }} &nbsp;(dni {{ page.from_day }}–{{ page.to_day }})
+      </span>
+      {% if page.confirmed %}
+        <span class="zal-badge zal-done">zatwierdzona przez ZOPZ</span>
+      {% elif page.entries|length == 10 %}
+        <span class="zal-badge zal-active">gotowa do zatwierdzenia</span>
+      {% else %}
+        <span class="zal-badge zal-waiting">{{ page.entries|length }}/10 wpisów</span>
+      {% endif %}
+
+      {% if page.can_confirm %}
+        <button class="js-zatwierdz-btn" style="margin:0; padding:6px 14px; font-size:0.85rem;"
+          data-api-url="/api/praktyki/{{ praktyka.id }}/dziennik/strony/{{ page.num }}/zatwierdz">
+          Zatwierdź stronę {{ page.num }}
+        </button>
+      {% endif %}
+    </div>
+
+    {% if page.entries %}
+      {% set can_edit_page = (not page.confirmed) and current_user.role == 'student' and current_user.id == praktyka.student_id and praktyka.etap == 'dziennik_aktywny' %}
+      <div class="table-wrap">
+        <table class="doc-table dziennik-table">
+          <thead>
+            <tr>
+              <th style="width:3rem">Dzień</th>
+              <th style="width:8rem">Data</th>
+              <th>Opis wykonanych prac</th>
+              <th style="width:8rem">Efekty</th>
+              <th style="width:10rem">Osoba nadzorująca</th>
+              {% if can_edit_page %}<th style="width:5rem"></th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for w in page.entries %}
+              <tr {% if w.potwierdzony %}class="row-confirmed"{% endif %}>
+                <td>{{ w.numer_dnia }}</td>
+                <td>{{ w.data_wpisu }}</td>
+                <td>{{ w.opis_prac }}</td>
+                <td>
+                  {% for ef in w.nr_efektow %}
+                    <span class="ef-chip">E{{ ef }}</span>
+                  {% endfor %}
+                </td>
+                <td>{{ w.osoba_nadzorujaca or '–' }}</td>
+                {% if can_edit_page %}
+                  <td>
+                    <button type="button" class="js-edit-toggle btn-small"
+                            data-day="{{ w.numer_dnia }}">Edytuj</button>
+                  </td>
+                {% endif %}
+              </tr>
+
+              {% if can_edit_page %}
+              <tr id="edit-row-{{ w.numer_dnia }}" class="edit-row hidden">
+                <td colspan="6">
+                  <form class="edit-wpis-form create-form"
+                        data-api-url="/api/praktyki/{{ praktyka.id }}/dziennik/{{ w.numer_dnia }}"
+                        data-method="PUT">
+                    <div class="field-group">
+                      <div class="field">
+                        <label>Data</label>
+                        <input name="data_wpisu" type="date" value="{{ w.data_wpisu }}" required>
+                      </div>
+                      <div class="field">
+                        <label>Osoba nadzorująca</label>
+                        <input name="osoba_nadzorujaca" type="text" value="{{ w.osoba_nadzorujaca or '' }}">
+                      </div>
+                    </div>
+                    <div class="field">
+                      <label>Opis wykonanych prac</label>
+                      <textarea name="opis_prac" rows="3" required>{{ w.opis_prac }}</textarea>
+                    </div>
+                    <div class="field">
+                      <label>Efekty uczenia się</label>
+                      <div class="efekty-checkboxes">
+                        {% for nr, opis in efekty_uczenia %}
+                          <label class="efekt-check-label" title="{{ opis }}">
+                            <input type="checkbox" name="nr_efektow" value="{{ nr }}"
+                                   {% if nr in w.nr_efektow %}checked{% endif %}> E{{ nr }}
+                          </label>
+                        {% endfor %}
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                      <button type="submit">Zapisz</button>
+                      <button type="button" class="js-cancel-edit secondary"
+                              data-day="{{ w.numer_dnia }}">Anuluj</button>
+                    </div>
+                  </form>
+                </td>
+              </tr>
+              {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="note" style="padding:10px 0;">Brak wpisów na tej stronie.</p>
+    {% endif %}
+  </div>
+{% endfor %}
+
+<script>
+// Add journal entry
+(function () {
+  var form = document.getElementById('form-wpis');
+  if (!form) return;
+  submitForm(form, form.dataset.apiUrl, 'POST', function (data) {
+    flashSuccess(data.data ? data.data.message : 'Wpis dodany.');
+    setTimeout(function () { window.location.reload(); }, 600);
+  });
+})();
+
+// Confirm page buttons
+document.querySelectorAll('.js-zatwierdz-btn').forEach(function (btn) {
+  btn.addEventListener('click', async function () {
+    btn.disabled = true;
+    try {
+      var result = await apiCall(btn.dataset.apiUrl, 'POST', {});
+      flashSuccess(result.data ? result.data.message : 'Strona zatwierdzona.');
+      setTimeout(function () { window.location.reload(); }, 600);
+    } catch (err) {
+      btn.disabled = false;
+      alert('Błąd: ' + err.message);
+    }
+  });
+});
+
+// Edit entry toggle
+document.querySelectorAll('.js-edit-toggle').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var row = document.getElementById('edit-row-' + btn.dataset.day);
+    if (row) row.classList.toggle('hidden');
+  });
+});
+document.querySelectorAll('.js-cancel-edit').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var row = document.getElementById('edit-row-' + btn.dataset.day);
+    if (row) row.classList.add('hidden');
+  });
+});
+document.querySelectorAll('.edit-wpis-form').forEach(function (form) {
+  submitForm(form, form.dataset.apiUrl, form.dataset.method || 'PUT', function (data) {
+    flashSuccess(data.data ? data.data.message : 'Wpis zaktualizowany.');
+    setTimeout(function () { window.location.reload(); }, 600);
+  });
+});
+
+// DEV: bulk fill
+var devFillBtn = document.getElementById('btn-dev-fill');
+if (devFillBtn) {
+  devFillBtn.addEventListener('click', async function () {
+    devFillBtn.disabled = true;
+    devFillBtn.textContent = 'Wypełnianie…';
+    try {
+      var result = await apiCall(devFillBtn.dataset.apiUrl, 'POST', {});
+      flashSuccess(result.data ? result.data.message : 'Wpisy dodane.');
+      setTimeout(function () { window.location.reload(); }, 800);
+    } catch (err) {
+      devFillBtn.disabled = false;
+      devFillBtn.textContent = '🛠 DEV: Wypełnij cały dziennik';
+      alert('Błąd: ' + err.message);
+    }
+  });
+}
+</script>
+{% endblock %}

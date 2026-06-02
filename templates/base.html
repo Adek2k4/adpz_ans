@@ -5,6 +5,7 @@
     <title>{{ title or "System obslugi praktyk" }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
   </head>
   <body>
     <header>
@@ -15,10 +16,11 @@
             <a href="/">Start</a>
             <a href="/dashboard">Panel</a>
             <a href="/kontakt">Kontakt</a>
-            <a href="/hobby">Zainteresowania</a>
-            <a href="/formularz">Formularz</a>
             {% if current_user.is_authenticated %}
               <a href="/profil">Profil</a>
+              {% if current_user.role == 'dyrektor' %}
+                <a href="/zatwierdzanie">Zatwierdzanie</a>
+              {% endif %}
               <a href="/logout">Wyloguj</a>
             {% else %}
               <a href="/login">Logowanie</a>
@@ -27,6 +29,21 @@
           {% if current_user.is_authenticated %}
             <div class="user-pill">
               {{ current_user.name }} ({{ current_user.role }})
+            </div>
+          {% endif %}
+          {% if dev_mode %}
+            <div class="dev-switcher">
+              <button class="dev-switcher-btn">🛠 DEV</button>
+              <div class="dev-switcher-menu">
+                <div class="dev-switcher-label">Szybkie logowanie</div>
+                <a href="/dev/login/student1@dev.local">Student 1 – Anna Kowalska</a>
+                <a href="/dev/login/student2@dev.local">Student 2 – Piotr Nowak</a>
+                <a href="/dev/login/student3@dev.local">Student 3 – Maria Wiśniewska</a>
+                <hr>
+                <a href="/dev/login/zopz@dev.local">ZOPZ – Tomasz Zopzowski</a>
+                <a href="/dev/login/uopz@dev.local">UOPZ – Ewa Uopzowska</a>
+                <a href="/dev/login/dyrektor@dev.local">Dyrektor – Jan Dyrektor</a>
+              </div>
             </div>
           {% endif %}
         </div>

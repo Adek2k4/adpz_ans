@@ -1,438 +1,596 @@
+"""REST API blueprint — all business logic lives here."""
 import json
-import os
-import re
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
+from flask_login import current_user
 
+from .db import (
+    DOKUMENT_TYPY, ETAPY, ETAP_IDX,
+    can_edit_dok, get_db_connection, get_praktyka_by_id,
+    get_praktyki_for_role, get_praktyka_for_student, parse_dok,
+)
 
-api_bp = Blueprint("api", __name__)
-
-DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-FILES = {
-    "students": "api_students.json",
-    "internships": "api_internships.json",
-    "documents": "api_documents.json",
-    "journal_entries": "api_journal_entries.json",
-    "effects": "api_effects.json",
+# Required signatures for each stage before advancing
+_REQUIRED_SIGS = {
+    # Both sides must sign zal1+zal2 before leaving stage 0.
+    # Stage 1 has the same requirements so _try_auto_advance skips it immediately.
+    "dyrektor_wysyla_wstepne": [
+        ("zal1", "podpis_zaklad"), ("zal1", "podpis_uczelnia"),
+        ("zal2", "podpis_zakladu"), ("zal2", "podpis_dyrektora"),
+    ],
+    "zopz_podpisuje_wstepne": [
+        ("zal1", "podpis_zaklad"), ("zal1", "podpis_uczelnia"),
+        ("zal2", "podpis_zakladu"), ("zal2", "podpis_dyrektora"),
+    ],
+    "zopz_wypelnia_zal2a":     [("zal2a", "podpis_zopz")],
+    "student_podpisuje_zal2a": [("zal2a", "podpis_student")],
+    "uopz_podpisuje_zal2a":    [("zal2a", "podpis_uopz")],
+    "dyrektor_wysyla_zal3_1":  [("zal3_1", "podpis_dyrektor")],
+    "zopz_podpisuje_zal3_2":   [("zal3_2", "podpis_zopz_1"), ("zal3_2", "podpis_zopz_2")],
+    "zal7_do_podpisania":      [("zal7", "podpis_student")],
+    "dokumenty_koncowe": [
+        ("zal3_3", "podpis_zopz"), ("zal3_4", "podpis_zopz"),
+        ("zal3_5", "podpis_uopz"), ("zal3_6", "podpis_uopz"),
+        ("zal4", "podpis_zopz"), ("zal4", "podpis_uopz"),
+        ("zal5", None),
+    ],
+    "dyrektor_podpisuje_zal8": [("zal8", "podpis_dyrektor")],
 }
 
 
-def _load_items(key):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    path = os.path.join(DATA_DIR, FILES[key])
-    if not os.path.exists(path):
-        return []
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except json.JSONDecodeError:
-        return []
+def _missing_docs(pid, etap_id, conn):
+    """Return list of human-readable strings for unsatisfied requirements."""
+    missing = []
+    for typ, sig_field in _REQUIRED_SIGS.get(etap_id, []):
+        row = conn.execute(
+            "SELECT zawartosc_json FROM dokument WHERE praktyka_id=? AND typ=?", (pid, typ)
+        ).fetchone()
+        label = DOKUMENT_TYPY.get(typ, typ)
+        if not row:
+            missing.append(f"{label}: brak dokumentu")
+            continue
+        try:
+            data = json.loads(row["zawartosc_json"])
+        except Exception:
+            data = {}
+        if sig_field is None:
+            if not data:
+                missing.append(f"{label}: dokument pusty")
+        elif not data.get(sig_field):
+            missing.append(f"{label}: brak podpisu")
+    return missing
 
 
-def _save_items(key, items):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    path = os.path.join(DATA_DIR, FILES[key])
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(items, handle, indent=2)
+def _try_auto_advance(pid, etap_id, conn):
+    """Auto-advance praktyka to next stage if all doc requirements are met.
+    Recurses so that stages whose requirements are already satisfied are
+    also skipped (e.g. stage 1 after stage 0 when both parties already signed).
+    Returns the final new etap id or None if no advance happened."""
+    if etap_id not in _REQUIRED_SIGS:
+        return None
+    if _missing_docs(pid, etap_id, conn):
+        return None
+    idx = ETAP_IDX.get(etap_id, -1)
+    if idx < 0 or idx + 1 >= len(ETAPY):
+        return None
+    next_etap = ETAPY[idx + 1]["id"]
+    conn.execute(
+        "UPDATE praktyka SET etap=?, updated_at=? WHERE id=?",
+        (next_etap, _NOW(), pid),
+    )
+    # Recursively skip stages whose requirements are already met
+    further = _try_auto_advance(pid, next_etap, conn)
+    return further or next_etap
+
+api_bp = Blueprint("api", __name__)
+
+_NOW = lambda: datetime.utcnow().isoformat() + "Z"
 
 
-def _next_id(items):
-    if not items:
-        return 1
-    return max(item.get("id", 0) for item in items) + 1
+def _ok(data=None, status=200):
+    return jsonify({"ok": True, **({"data": data} if data is not None else {})}), status
 
 
-def _json_error(message, status, details=None):
-    payload = {"error": message}
+def _err(message, status=400, details=None):
+    payload = {"ok": False, "error": message}
     if details:
         payload["details"] = details
     return jsonify(payload), status
 
 
-def _get_payload():
-    payload = request.get_json(silent=True)
-    if payload is None:
-        return None, _json_error("Brak danych JSON w zadaniu.", 400)
-    return payload, None
+def _auth():
+    """Return 401 error response if the request is not authenticated."""
+    if not current_user.is_authenticated:
+        return _err("Nie zalogowano.", 401)
+    return None
 
 
-def _validate_student(payload, partial=False):
-    errors = {}
-    name = payload.get("name")
-    email = payload.get("email")
-
-    if not partial or name is not None:
-        if not name or not str(name).strip():
-            errors["name"] = "Imie jest wymagane."
-    if not partial or email is not None:
-        if not email or not str(email).strip():
-            errors["email"] = "Email jest wymagany."
-        elif not EMAIL_RE.match(str(email)):
-            errors["email"] = "Nieprawidlowy format email."
-    return errors
+def _involved(p):
+    """Check whether current_user is a participant of praktyka p."""
+    u = current_user
+    return (
+        u.role == "dyrektor"
+        or (u.role == "student" and u.id == p["student_id"])
+        or (u.role == "uopz"    and u.id == p["uopz_id"])
+        or (u.role == "zopz"    and u.id == p["zopz_id"])
+    )
 
 
-def _validate_internship(payload, partial=False):
-    errors = {}
-    required = ["student_id", "company", "start_date", "end_date", "status"]
-    for key in required:
-        value = payload.get(key)
-        if partial and value is None:
-            continue
-        if value in (None, ""):
-            errors[key] = "Pole jest wymagane."
+# ── Praktyki ──────────────────────────────────────────────────────────────────
 
-    if "student_id" in payload and payload.get("student_id") not in (None, ""):
-        if not isinstance(payload.get("student_id"), int):
-            errors["student_id"] = "student_id musi byc liczba."
-    return errors
+@api_bp.route("/api/praktyki", methods=["GET"])
+def api_praktyki_list():
+    if e := _auth(): return e
+    if current_user.role == "student":
+        p = get_praktyka_for_student(current_user.id, current_user)
+        return _ok([p] if p else [])
+    return _ok(get_praktyki_for_role(current_user))
 
 
-def _validate_document(payload, partial=False):
-    errors = {}
-    required = ["internship_id", "type", "status"]
-    for key in required:
-        value = payload.get(key)
-        if partial and value is None:
-            continue
-        if value in (None, ""):
-            errors[key] = "Pole jest wymagane."
-    if "internship_id" in payload and payload.get("internship_id") not in (None, ""):
-        if not isinstance(payload.get("internship_id"), int):
-            errors["internship_id"] = "internship_id musi byc liczba."
-    return errors
+@api_bp.route("/api/praktyki", methods=["POST"])
+def api_praktyki_create():
+    if e := _auth(): return e
+    if current_user.role != "uopz":
+        return _err("Tylko UOPZ może tworzyć praktyki.", 403)
 
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        student_id = data.get("student_id")
+        zaklad_id  = data.get("zaklad_id")
+        data_od    = (data.get("data_od") or "").strip()
+        data_do    = (data.get("data_do") or "").strip()
+    else:
+        student_id = request.form.get("student_id")
+        zaklad_id  = request.form.get("zaklad_id")
+        data_od    = (request.form.get("data_od") or "").strip()
+        data_do    = (request.form.get("data_do") or "").strip()
 
-def _filter_by_query(items, key_name, query_name):
-    value = request.args.get(query_name)
-    if value is None:
-        return items
+    if not all([student_id, zaklad_id, data_od, data_do]):
+        return _err("Wymagane pola: student_id, zaklad_id, data_od, data_do.")
+
     try:
-        value_int = int(value)
-    except ValueError:
-        return items
-    return [item for item in items if item.get(key_name) == value_int]
-
-
-@api_bp.route("/api/students", methods=["GET", "POST"])
-def students_collection():
-    if request.method == "GET":
-        items = _load_items("students")
-        return jsonify({"data": items})
-
-    payload, error = _get_payload()
-    if error:
-        return error
-
-    errors = _validate_student(payload)
-    if errors:
-        return _json_error("Bledne dane.", 400, errors)
-
-    items = _load_items("students")
-    item = {
-        "id": _next_id(items),
-        "name": payload["name"].strip(),
-        "email": payload["email"].strip(),
-        "created_at": datetime.utcnow().isoformat() + "Z",
-    }
-    items.append(item)
-    _save_items("students", items)
-    return jsonify({"data": item}), 201
-
-
-@api_bp.route("/api/students/<int:item_id>", methods=["GET", "PUT", "PATCH", "DELETE"])
-def students_resource(item_id):
-    items = _load_items("students")
-    item = next((entry for entry in items if entry.get("id") == item_id), None)
-    if not item:
-        return _json_error("Nie znaleziono studenta.", 404)
-
-    if request.method == "GET":
-        return jsonify({"data": item})
-
-    if request.method == "DELETE":
-        items = [entry for entry in items if entry.get("id") != item_id]
-        _save_items("students", items)
-        return jsonify({"ok": True})
-
-    payload, error = _get_payload()
-    if error:
-        return error
-
-    partial = request.method == "PATCH"
-    errors = _validate_student(payload, partial=partial)
-    if errors:
-        return _json_error("Bledne dane.", 400, errors)
-
-    if "name" in payload:
-        item["name"] = payload["name"].strip()
-    if "email" in payload:
-        item["email"] = payload["email"].strip()
-
-    _save_items("students", items)
-    return jsonify({"data": item})
-
-
-@api_bp.route("/api/internships", methods=["GET", "POST"])
-def internships_collection():
-    if request.method == "GET":
-        items = _load_items("internships")
-        items = _filter_by_query(items, "student_id", "student_id")
-        return jsonify({"data": items})
-
-    payload, error = _get_payload()
-    if error:
-        return error
-
-    errors = _validate_internship(payload)
-    if errors:
-        return _json_error("Bledne dane.", 400, errors)
-
-    items = _load_items("internships")
-    item = {
-        "id": _next_id(items),
-        "student_id": payload["student_id"],
-        "company": payload["company"].strip(),
-        "start_date": payload["start_date"],
-        "end_date": payload["end_date"],
-        "status": payload["status"],
-        "created_at": datetime.utcnow().isoformat() + "Z",
-    }
-    items.append(item)
-    _save_items("internships", items)
-    return jsonify({"data": item}), 201
-
-
-@api_bp.route("/api/internships/<int:item_id>", methods=["GET", "PUT", "PATCH", "DELETE"])
-def internships_resource(item_id):
-    items = _load_items("internships")
-    item = next((entry for entry in items if entry.get("id") == item_id), None)
-    if not item:
-        return _json_error("Nie znaleziono praktyki.", 404)
-
-    if request.method == "GET":
-        return jsonify({"data": item})
-
-    if request.method == "DELETE":
-        items = [entry for entry in items if entry.get("id") != item_id]
-        _save_items("internships", items)
-        return jsonify({"ok": True})
-
-    payload, error = _get_payload()
-    if error:
-        return error
-
-    partial = request.method == "PATCH"
-    errors = _validate_internship(payload, partial=partial)
-    if errors:
-        return _json_error("Bledne dane.", 400, errors)
-
-    for key in ["student_id", "company", "start_date", "end_date", "status"]:
-        if key in payload:
-            item[key] = payload[key]
-
-    _save_items("internships", items)
-    return jsonify({"data": item})
-
-
-@api_bp.route("/api/documents", methods=["GET", "POST"])
-def documents_collection():
-    if request.method == "GET":
-        items = _load_items("documents")
-        items = _filter_by_query(items, "internship_id", "internship_id")
-        return jsonify({"data": items})
-
-    payload, error = _get_payload()
-    if error:
-        return error
-
-    errors = _validate_document(payload)
-    if errors:
-        return _json_error("Bledne dane.", 400, errors)
-
-    items = _load_items("documents")
-    item = {
-        "id": _next_id(items),
-        "internship_id": payload["internship_id"],
-        "type": payload["type"].strip(),
-        "status": payload["status"].strip(),
-        "notes": payload.get("notes", ""),
-        "created_at": datetime.utcnow().isoformat() + "Z",
-    }
-    items.append(item)
-    _save_items("documents", items)
-    return jsonify({"data": item}), 201
-
-
-@api_bp.route("/api/documents/<int:item_id>", methods=["GET", "PUT", "PATCH", "DELETE"])
-def documents_resource(item_id):
-    items = _load_items("documents")
-    item = next((entry for entry in items if entry.get("id") == item_id), None)
-    if not item:
-        return _json_error("Nie znaleziono dokumentu.", 404)
-
-    if request.method == "GET":
-        return jsonify({"data": item})
-
-    if request.method == "DELETE":
-        items = [entry for entry in items if entry.get("id") != item_id]
-        _save_items("documents", items)
-        return jsonify({"ok": True})
-
-    payload, error = _get_payload()
-    if error:
-        return error
-
-    partial = request.method == "PATCH"
-    errors = _validate_document(payload, partial=partial)
-    if errors:
-        return _json_error("Bledne dane.", 400, errors)
-
-    for key in ["internship_id", "type", "status", "notes"]:
-        if key in payload:
-            item[key] = payload[key]
-
-    _save_items("documents", items)
-    return jsonify({"data": item})
-
-
-@api_bp.route("/api/journal-entries", methods=["GET", "POST"])
-def journal_entries_collection():
-    if request.method == "GET":
-        items = _load_items("journal_entries")
-        items = _filter_by_query(items, "internship_id", "internship_id")
-        return jsonify({"data": items})
-
-    payload, error = _get_payload()
-    if error:
-        return error
-
-    errors = _validate_journal_entry(payload)
-    if errors:
-        return _json_error("Bledne dane.", 400, errors)
-
-    items = _load_items("journal_entries")
-    item = {
-        "id": _next_id(items),
-        "internship_id": int(payload["internship_id"]),
-        "date": payload["date"],
-        "activity": payload["activity"].strip(),
-        "hours": int(payload["hours"]),
-        "created_at": datetime.utcnow().isoformat() + "Z",
-    }
-    items.append(item)
-    _save_items("journal_entries", items)
-    return jsonify({"data": item}), 201
-
-
-@api_bp.route("/api/journal-entries/<int:item_id>", methods=["GET", "PUT", "PATCH", "DELETE"])
-def journal_entries_resource(item_id):
-    items = _load_items("journal_entries")
-    item = next((entry for entry in items if entry.get("id") == item_id), None)
-    if not item:
-        return _json_error("Nie znaleziono wpisu dziennika.", 404)
-
-    if request.method == "GET":
-        return jsonify({"data": item})
-
-    if request.method == "DELETE":
-        items = [entry for entry in items if entry.get("id") != item_id]
-        _save_items("journal_entries", items)
-        return jsonify({"ok": True})
-
-    payload, error = _get_payload()
-    if error:
-        return error
-
-    partial = request.method == "PATCH"
-    errors = _validate_journal_entry(payload, partial=partial)
-    if errors:
-        return _json_error("Bledne dane.", 400, errors)
-
-    if "internship_id" in payload:
-        item["internship_id"] = int(payload["internship_id"])
-    if "date" in payload:
-        item["date"] = payload["date"]
-    if "activity" in payload:
-        item["activity"] = payload["activity"].strip()
-    if "hours" in payload:
-        item["hours"] = int(payload["hours"])
-
-    _save_items("journal_entries", items)
-    return jsonify({"data": item})
-
-
-@api_bp.route("/api/effects", methods=["GET", "POST"])
-def effects_collection():
-    if request.method == "GET":
-        items = _load_items("effects")
-        items = _filter_by_query(items, "internship_id", "internship_id")
-        return jsonify({"data": items})
-
-    payload, error = _get_payload()
-    if error:
-        return error
-
-    errors = _validate_effect(payload)
-    if errors:
-        return _json_error("Bledne dane.", 400, errors)
-
-    achieved_value = payload.get("achieved", False)
-    if not isinstance(achieved_value, bool):
-        achieved_value = str(achieved_value).lower() in ("true", "1")
-
-    items = _load_items("effects")
-    item = {
-        "id": _next_id(items),
-        "internship_id": int(payload["internship_id"]),
-        "code": payload["code"].strip(),
-        "description": payload["description"].strip(),
-        "achieved": achieved_value,
-        "created_at": datetime.utcnow().isoformat() + "Z",
-    }
-    items.append(item)
-    _save_items("effects", items)
-    return jsonify({"data": item}), 201
-
-
-@api_bp.route("/api/effects/<int:item_id>", methods=["GET", "PUT", "PATCH", "DELETE"])
-def effects_resource(item_id):
-    items = _load_items("effects")
-    item = next((entry for entry in items if entry.get("id") == item_id), None)
-    if not item:
-        return _json_error("Nie znaleziono efektu.", 404)
-
-    if request.method == "GET":
-        return jsonify({"data": item})
-
-    if request.method == "DELETE":
-        items = [entry for entry in items if entry.get("id") != item_id]
-        _save_items("effects", items)
-        return jsonify({"ok": True})
-
-    payload, error = _get_payload()
-    if error:
-        return error
-
-    partial = request.method == "PATCH"
-    errors = _validate_effect(payload, partial=partial)
-    if errors:
-        return _json_error("Bledne dane.", 400, errors)
-
-    if "internship_id" in payload:
-        item["internship_id"] = int(payload["internship_id"])
-    if "code" in payload:
-        item["code"] = payload["code"].strip()
-    if "description" in payload:
-        item["description"] = payload["description"].strip()
-    if "achieved" in payload:
-        achieved_value = payload.get("achieved")
-        if not isinstance(achieved_value, bool):
-            achieved_value = str(achieved_value).lower() in ("true", "1")
-        item["achieved"] = achieved_value
-
-    _save_items("effects", items)
-    return jsonify({"data": item})
+        student_id = int(student_id)
+        zaklad_id  = int(zaklad_id)
+    except (TypeError, ValueError):
+        return _err("student_id i zaklad_id muszą być liczbami.")
+
+    now = _NOW()
+    with get_db_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO praktyka
+               (student_id, uopz_id, zaklad_id, data_rozpoczecia, data_zakonczenia, etap, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 'dyrektor_wysyla_wstepne', ?, ?)""",
+            (student_id, current_user.id, zaklad_id, data_od, data_do, now, now),
+        )
+    p = get_praktyka_by_id(cur.lastrowid, current_user)
+    return _ok(p, 201)
+
+
+@api_bp.route("/api/praktyki/<int:pid>", methods=["GET"])
+def api_praktyka_get(pid):
+    if e := _auth(): return e
+    p = get_praktyka_by_id(pid, current_user)
+    if not p or not _involved(p):
+        return _err("Nie znaleziono.", 404)
+    return _ok(p)
+
+
+@api_bp.route("/api/praktyki/<int:pid>/akcja", methods=["POST"])
+def api_praktyka_akcja(pid):
+    if e := _auth(): return e
+    p = get_praktyka_by_id(pid, current_user)
+    if not p or not _involved(p):
+        return _err("Nie znaleziono.", 404)
+
+    data  = request.get_json(silent=True) or {}
+    akcja = data.get("akcja", "zatwierdz")
+
+    if akcja == "odrzuc":
+        if not p["can_reject"]:
+            return _err("Brak uprawnień do odrzucenia.", 403)
+        next_etap = "zopz_wypelnia_zal2a"
+        msg = "Harmonogram odrzucony – odesłano do ZOPZu."
+        with get_db_connection() as conn:
+            conn.execute("UPDATE praktyka SET etap=?, updated_at=? WHERE id=?",
+                         (next_etap, _NOW(), pid))
+    else:
+        if not p["can_act"]:
+            return _err("Brak uprawnień do wykonania tej akcji.", 403)
+        idx = p["etap_idx"]
+        next_etap = ETAPY[idx + 1]["id"] if idx + 1 < len(ETAPY) else p["etap"]
+        msg = "Akcja wykonana pomyślnie."
+        with get_db_connection() as conn:
+            missing = _missing_docs(pid, p["etap"], conn)
+            if missing:
+                return _err(
+                    "Brak wymaganych dokumentów lub podpisów.",
+                    409,
+                    {"brakujace": missing},
+                )
+            conn.execute("UPDATE praktyka SET etap=?, updated_at=? WHERE id=?",
+                         (next_etap, _NOW(), pid))
+
+    return _ok({"etap": next_etap, "message": msg})
+
+
+# ── Dziennik ──────────────────────────────────────────────────────────────────
+
+@api_bp.route("/api/praktyki/<int:pid>/dziennik", methods=["GET"])
+def api_dziennik_list(pid):
+    if e := _auth(): return e
+    p = get_praktyka_by_id(pid, current_user)
+    if not p or not _involved(p):
+        return _err("Nie znaleziono.", 404)
+
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM wpis_dziennika WHERE praktyka_id = ? ORDER BY numer_dnia",
+            (pid,),
+        ).fetchall()
+
+    wpisy = []
+    for w in rows:
+        wd = dict(w)
+        try:
+            wd["nr_efektow"] = json.loads(wd["nr_efektow"])
+        except (json.JSONDecodeError, TypeError):
+            wd["nr_efektow"] = []
+        wpisy.append(wd)
+
+    # group into pages of 10 with confirmation status
+    pages = []
+    for i in range(0, 120, 10):
+        page_entries = [w for w in wpisy if i < w["numer_dnia"] <= i + 10]
+        confirmed = len(page_entries) == 10 and all(w["potwierdzony"] for w in page_entries)
+        pages.append({
+            "num": i // 10 + 1,
+            "from_day": i + 1,
+            "to_day": i + 10,
+            "entries": page_entries,
+            "confirmed": confirmed,
+            "can_confirm": (
+                len(page_entries) == 10
+                and not confirmed
+                and current_user.role == "zopz"
+                and current_user.id == p["zopz_id"]
+            ),
+        })
+
+    return _ok({
+        "total": len(wpisy),
+        "confirmed_total": sum(1 for w in wpisy if w["potwierdzony"]),
+        "pages": pages,
+    })
+
+
+@api_bp.route("/api/praktyki/<int:pid>/dziennik", methods=["POST"])
+def api_dziennik_add(pid):
+    if e := _auth(): return e
+    p = get_praktyka_by_id(pid, current_user)
+    if not p:
+        return _err("Nie znaleziono.", 404)
+    if p["etap"] != "dziennik_aktywny":
+        return _err("Dziennik nie jest aktywny.", 409)
+    if current_user.role != "student" or current_user.id != p["student_id"]:
+        return _err("Tylko student może dodawać wpisy.", 403)
+
+    # Accept JSON or form data
+    if request.is_json:
+        data = request.get_json() or {}
+        data_wpisu   = (data.get("data_wpisu") or "").strip()
+        opis_prac    = (data.get("opis_prac") or "").strip()
+        nr_efektow   = data.get("nr_efektow", [])
+        osoba        = (data.get("osoba_nadzorujaca") or "").strip()
+    else:
+        data_wpisu   = (request.form.get("data_wpisu") or "").strip()
+        opis_prac    = (request.form.get("opis_prac") or "").strip()
+        nr_efektow   = request.form.getlist("nr_efektow")
+        osoba        = (request.form.get("osoba_nadzorujaca") or "").strip()
+
+    if not data_wpisu or not opis_prac:
+        return _err("Wymagane pola: data_wpisu, opis_prac.")
+
+    now = _NOW()
+    with get_db_connection() as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) FROM wpis_dziennika WHERE praktyka_id = ?", (pid,)
+        ).fetchone()[0]
+        if total >= 120:
+            return _err("Dziennik jest już pełny (120 wpisów).", 409)
+        numer = total + 1
+        conn.execute(
+            """INSERT INTO wpis_dziennika
+               (praktyka_id, numer_dnia, data_wpisu, opis_prac, nr_efektow, osoba_nadzorujaca, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (pid, numer, data_wpisu, opis_prac,
+             json.dumps(nr_efektow, ensure_ascii=False), osoba or None, now),
+        )
+
+    return _ok({"numer_dnia": numer, "message": f"Wpis nr {numer} dodany."}, 201)
+
+
+@api_bp.route("/api/praktyki/<int:pid>/dziennik/strony/<int:page_num>/zatwierdz", methods=["POST"])
+def api_dziennik_zatwierdz(pid, page_num):
+    if e := _auth(): return e
+    p = get_praktyka_by_id(pid, current_user)
+    if not p:
+        return _err("Nie znaleziono.", 404)
+    if p["etap"] != "dziennik_aktywny":
+        return _err("Dziennik nie jest aktywny.", 409)
+    if current_user.role != "zopz" or current_user.id != p["zopz_id"]:
+        return _err("Tylko ZOPZ zakładu może zatwierdzać strony.", 403)
+    if not 1 <= page_num <= 12:
+        return _err("Numer strony musi być w zakresie 1–12.", 400)
+
+    day_from = (page_num - 1) * 10 + 1
+    day_to   = page_num * 10
+    now      = _NOW()
+
+    with get_db_connection() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM wpis_dziennika WHERE praktyka_id=? AND numer_dnia BETWEEN ? AND ?",
+            (pid, day_from, day_to),
+        ).fetchone()[0]
+        if count < 10:
+            return _err(f"Strona {page_num} ma tylko {count}/10 wpisów.", 409)
+
+        conn.execute(
+            "UPDATE wpis_dziennika SET potwierdzony=1, potwierdzone_at=?"
+            " WHERE praktyka_id=? AND numer_dnia BETWEEN ? AND ?",
+            (now, pid, day_from, day_to),
+        )
+
+        confirmed_total = int(conn.execute(
+            "SELECT COALESCE(SUM(potwierdzony),0) FROM wpis_dziennika WHERE praktyka_id=?",
+            (pid,),
+        ).fetchone()[0] or 0)
+
+        auto_advanced = False
+        if confirmed_total >= 120:
+            conn.execute(
+                "UPDATE praktyka SET etap='zal7_do_podpisania', updated_at=? WHERE id=?",
+                (now, pid),
+            )
+            auto_advanced = True
+
+    return _ok({
+        "confirmed_total": confirmed_total,
+        "auto_advanced": auto_advanced,
+        "message": (
+            f"Strona {page_num} zatwierdzona. Dziennik zakończony – odblokowano zał7."
+            if auto_advanced else
+            f"Strona {page_num} zatwierdzona ({confirmed_total}/120)."
+        ),
+    })
+
+
+# ── Dokumenty ─────────────────────────────────────────────────────────────────
+
+@api_bp.route("/api/praktyki/<int:pid>/dokumenty/<typ>", methods=["GET"])
+def api_dokument_get(pid, typ):
+    if e := _auth(): return e
+    if typ not in DOKUMENT_TYPY:
+        return _err("Nieznany typ dokumentu.", 404)
+    p = get_praktyka_by_id(pid, current_user)
+    if not p or not _involved(p):
+        return _err("Nie znaleziono.", 404)
+
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT zawartosc_json, updated_at FROM dokument WHERE praktyka_id=? AND typ=?",
+            (pid, typ),
+        ).fetchone()
+
+    data, updated_at = {}, None
+    if row:
+        try:
+            data = json.loads(row["zawartosc_json"])
+        except (json.JSONDecodeError, TypeError):
+            data = {}
+        updated_at = row["updated_at"]
+
+    # For zal3_1 include zal1 data for auto-fill
+    zal1 = {}
+    if typ == "zal3_1":
+        with get_db_connection() as conn:
+            r1 = conn.execute(
+                "SELECT zawartosc_json FROM dokument WHERE praktyka_id=? AND typ='zal1'", (pid,)
+            ).fetchone()
+        if r1:
+            try:
+                zal1 = json.loads(r1["zawartosc_json"])
+            except (json.JSONDecodeError, TypeError):
+                zal1 = {}
+
+    return _ok({
+        "typ": typ, "typ_label": DOKUMENT_TYPY[typ],
+        "can_edit": can_edit_dok(typ, p, current_user),
+        "data": data, "updated_at": updated_at,
+        "zal1": zal1,
+    })
+
+
+@api_bp.route("/api/praktyki/<int:pid>/dokumenty/<typ>", methods=["PUT", "POST"])
+def api_dokument_save(pid, typ):
+    if e := _auth(): return e
+    if typ not in DOKUMENT_TYPY:
+        return _err("Nieznany typ dokumentu.", 404)
+    p = get_praktyka_by_id(pid, current_user)
+    if not p or not _involved(p):
+        return _err("Nie znaleziono.", 404)
+
+    now = _NOW()
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT zawartosc_json FROM dokument WHERE praktyka_id=? AND typ=?", (pid, typ)
+        ).fetchone()
+        existing = {}
+        if row:
+            try:
+                existing = json.loads(row["zawartosc_json"])
+            except (json.JSONDecodeError, TypeError):
+                existing = {}
+
+        if not can_edit_dok(typ, p, current_user, existing):
+            return _err("Brak uprawnień lub dokument już podpisany.", 403)
+
+        form = request.get_json(silent=True) or request.form
+        parsed = parse_dok(typ, form, existing, current_user)
+
+        conn.execute(
+            """INSERT INTO dokument (praktyka_id, typ, zawartosc_json, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(praktyka_id, typ)
+               DO UPDATE SET zawartosc_json=excluded.zawartosc_json,
+                             updated_at=excluded.updated_at""",
+            (pid, typ, json.dumps(parsed, ensure_ascii=False), now),
+        )
+
+        new_etap = _try_auto_advance(pid, p["etap"], conn)
+
+    return _ok({
+        "typ": typ, "data": parsed, "updated_at": now,
+        "advanced": bool(new_etap), "new_etap": new_etap,
+    })
+
+
+# ── Reference data ─────────────────────────────────────────────────────────────
+
+@api_bp.route("/api/zaklady", methods=["GET"])
+def api_zaklady():
+    if e := _auth(): return e
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT z.id, z.nazwa, z.adres, z.nip,"
+            " u.id AS zopz_id, u.imie || ' ' || u.nazwisko AS zopz_name"
+            " FROM zaklad z JOIN uzytkownik u ON u.id = z.zopz_id ORDER BY z.nazwa"
+        ).fetchall()
+    return _ok([dict(r) for r in rows])
+
+
+@api_bp.route("/api/uzytkownicy", methods=["GET"])
+def api_uzytkownicy():
+    if e := _auth(): return e
+    rola = request.args.get("rola")
+    with get_db_connection() as conn:
+        if rola:
+            rows = conn.execute(
+                "SELECT id, imie || ' ' || nazwisko AS name, email, rola"
+                " FROM uzytkownik WHERE rola=? AND aktywny=1 ORDER BY nazwisko, imie",
+                (rola,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, imie || ' ' || nazwisko AS name, email, rola"
+                " FROM uzytkownik WHERE aktywny=1 ORDER BY rola, nazwisko, imie"
+            ).fetchall()
+    return _ok([dict(r) for r in rows])
+
+
+@api_bp.route("/api/me", methods=["GET"])
+def api_me():
+    if e := _auth(): return e
+    return _ok({
+        "id": current_user.id, "name": current_user.name,
+        "email": current_user.email, "role": current_user.role,
+    })
+
+
+# ── Dziennik – edit entry ──────────────────────────────────────────────────────
+
+@api_bp.route("/api/praktyki/<int:pid>/dziennik/<int:numer_dnia>", methods=["PUT"])
+def api_dziennik_edit(pid, numer_dnia):
+    if e := _auth(): return e
+    p = get_praktyka_by_id(pid, current_user)
+    if not p:
+        return _err("Nie znaleziono.", 404)
+    if current_user.role != "student" or current_user.id != p["student_id"]:
+        return _err("Tylko student może edytować wpisy.", 403)
+    if p["etap"] != "dziennik_aktywny":
+        return _err("Dziennik nie jest aktywny.", 409)
+
+    page_num = (numer_dnia - 1) // 10 + 1
+    day_from = (page_num - 1) * 10 + 1
+    day_to   = page_num * 10
+
+    with get_db_connection() as conn:
+        confirmed_count = conn.execute(
+            "SELECT COUNT(*) FROM wpis_dziennika"
+            " WHERE praktyka_id=? AND numer_dnia BETWEEN ? AND ? AND potwierdzony=1",
+            (pid, day_from, day_to),
+        ).fetchone()[0]
+        if confirmed_count > 0:
+            return _err("Strona jest już zatwierdzona.", 409)
+
+        entry = conn.execute(
+            "SELECT id FROM wpis_dziennika WHERE praktyka_id=? AND numer_dnia=?",
+            (pid, numer_dnia),
+        ).fetchone()
+        if not entry:
+            return _err("Wpis nie istnieje.", 404)
+
+        if request.is_json:
+            data = request.get_json() or {}
+            data_wpisu = (data.get("data_wpisu") or "").strip()
+            opis_prac  = (data.get("opis_prac") or "").strip()
+            nr_efektow = data.get("nr_efektow", [])
+            osoba      = (data.get("osoba_nadzorujaca") or "").strip()
+        else:
+            data_wpisu = (request.form.get("data_wpisu") or "").strip()
+            opis_prac  = (request.form.get("opis_prac") or "").strip()
+            nr_efektow = request.form.getlist("nr_efektow")
+            osoba      = (request.form.get("osoba_nadzorujaca") or "").strip()
+
+        if not data_wpisu or not opis_prac:
+            return _err("Wymagane pola: data_wpisu, opis_prac.")
+
+        conn.execute(
+            "UPDATE wpis_dziennika"
+            " SET data_wpisu=?, opis_prac=?, nr_efektow=?, osoba_nadzorujaca=?"
+            " WHERE praktyka_id=? AND numer_dnia=?",
+            (data_wpisu, opis_prac,
+             json.dumps(nr_efektow, ensure_ascii=False),
+             osoba or None, pid, numer_dnia),
+        )
+
+    return _ok({"numer_dnia": numer_dnia, "message": f"Wpis nr {numer_dnia} zaktualizowany."})
+
+
+# ── DEV: bulk-fill journal ─────────────────────────────────────────────────────
+
+@api_bp.route("/api/praktyki/<int:pid>/dev/wypelnij_dziennik", methods=["POST"])
+def api_dev_fill_dziennik(pid):
+    if e := _auth(): return e
+    p = get_praktyka_by_id(pid, current_user)
+    if not p:
+        return _err("Nie znaleziono.", 404)
+    if current_user.role != "student" or current_user.id != p["student_id"]:
+        return _err("Tylko student.", 403)
+
+    from datetime import date as _date, timedelta
+    start = _date.fromisoformat(p["data_rozpoczecia"])
+    now   = _NOW()
+
+    with get_db_connection() as conn:
+        existing = {r[0] for r in conn.execute(
+            "SELECT numer_dnia FROM wpis_dziennika WHERE praktyka_id=?", (pid,)
+        ).fetchall()}
+
+        added = 0
+        for numer in range(1, 121):
+            if numer in existing:
+                continue
+            entry_date = (start + timedelta(days=numer - 1)).isoformat()
+            conn.execute(
+                "INSERT OR IGNORE INTO wpis_dziennika"
+                " (praktyka_id, numer_dnia, data_wpisu, opis_prac, nr_efektow,"
+                "  osoba_nadzorujaca, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (pid, numer, entry_date,
+                 f"Wpis testowy nr {numer} – praca w zakładzie.",
+                 json.dumps(["01", "02"]), "Jan Nadzorujący", now),
+            )
+            added += 1
+
+    return _ok({"added": added, "message": f"Dodano {added} wpisów testowych."})

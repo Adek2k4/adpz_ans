@@ -1,139 +1,185 @@
 {% extends "base.html" %}
-
 {% block content %}
-  <h1>Panel uzytkownika</h1>
-  <p class="lead">Panel laczy sie z REST API i pozwala zarzadzac danymi praktyk.</p>
+<h1>Panel</h1>
 
-  <div class="dashboard-grid">
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Studenci</h2>
-        <span class="panel-meta">Dodaj i przegladaj studentow</span>
+{# ── reusable card macro ────────────────────────────────── #}
+{% macro render_card(p) %}
+{% set is_done = p.etap == 'zamknieta' %}
+<div class="praktyka-card {% if is_done %}card-done{% endif %}">
+  <div class="praktyka-header">
+    <div>
+      <div class="praktyka-title">
+        {% if current_user.role == 'student' %}{{ p.zaklad_nazwa }}{% else %}{{ p.student_name }}{% endif %}
       </div>
-      <form id="student-form">
-        <div class="form-grid">
-          <div>
-            <label for="student-name">Imie i nazwisko</label>
-            <input id="student-name" name="name" type="text" required>
-          </div>
-          <div>
-            <label for="student-email">Email</label>
-            <input id="student-email" name="email" type="email" required>
-          </div>
-        </div>
-        <button type="submit">Dodaj studenta</button>
-      </form>
-      <div class="notice is-hidden" data-message="student"></div>
-      <div class="list" id="student-list"></div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Praktyki</h2>
-        <span class="panel-meta">Tworzenie praktyk dla studentow</span>
+      <div class="praktyka-meta">
+        {% if current_user.role != 'student' %}Zakład: {{ p.zaklad_nazwa }} &bull; {% endif %}
+        {{ p.data_rozpoczecia }} – {{ p.data_zakonczenia }}
       </div>
-      <form id="internship-form">
-        <div class="form-grid">
-          <div>
-            <label for="internship-student">Student</label>
-            <select id="internship-student" name="student_id" data-student-select required>
-              <option value="">Wybierz studenta</option>
-            </select>
-          </div>
-          <div>
-            <label for="internship-company">Zaklad pracy</label>
-            <input id="internship-company" name="company" type="text" required>
-          </div>
-          <div>
-            <label for="internship-start">Data rozpoczecia</label>
-            <input id="internship-start" name="start_date" type="date" required>
-          </div>
-          <div>
-            <label for="internship-end">Data zakonczenia</label>
-            <input id="internship-end" name="end_date" type="date" required>
-          </div>
-          <div>
-            <label for="internship-status">Status</label>
-            <select id="internship-status" name="status" required>
-              <option value="draft">draft</option>
-              <option value="submitted">submitted</option>
-              <option value="active">active</option>
-              <option value="completed">completed</option>
-            </select>
-          </div>
-        </div>
-        <button type="submit">Dodaj praktyke</button>
-      </form>
-      <div class="notice is-hidden" data-message="internship"></div>
-      <div class="list" id="internship-list"></div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Dziennik praktyk</h2>
-        <span class="panel-meta">Dodawanie wpisow dziennika</span>
-      </div>
-      <form id="journal-form">
-        <div class="form-grid">
-          <div>
-            <label for="journal-internship">Praktyka</label>
-            <select id="journal-internship" name="internship_id" data-internship-select required>
-              <option value="">Wybierz praktyke</option>
-            </select>
-          </div>
-          <div>
-            <label for="journal-date">Data</label>
-            <input id="journal-date" name="date" type="date" required>
-          </div>
-          <div>
-            <label for="journal-activity">Czynnosc</label>
-            <input id="journal-activity" name="activity" type="text" required>
-          </div>
-          <div>
-            <label for="journal-hours">Godziny</label>
-            <input id="journal-hours" name="hours" type="number" min="1" required>
-          </div>
-        </div>
-        <button type="submit">Dodaj wpis</button>
-      </form>
-      <div class="notice is-hidden" data-message="journal"></div>
-      <div class="list" id="journal-list"></div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Efekty uczenia</h2>
-        <span class="panel-meta">Przypisywanie efektow do praktyk</span>
-      </div>
-      <form id="effect-form">
-        <div class="form-grid">
-          <div>
-            <label for="effect-internship">Praktyka</label>
-            <select id="effect-internship" name="internship_id" data-internship-select required>
-              <option value="">Wybierz praktyke</option>
-            </select>
-          </div>
-          <div>
-            <label for="effect-code">Kod efektu</label>
-            <input id="effect-code" name="code" type="text" placeholder="E01" required>
-          </div>
-          <div>
-            <label for="effect-description">Opis</label>
-            <input id="effect-description" name="description" type="text" required>
-          </div>
-          <div>
-            <label>
-              <input id="effect-achieved" name="achieved" type="checkbox">
-              Osiagniety
-            </label>
-          </div>
-        </div>
-        <button type="submit">Dodaj efekt</button>
-      </form>
-      <div class="notice is-hidden" data-message="effect"></div>
-      <div class="list" id="effect-list"></div>
-    </section>
+      <div class="praktyka-meta">UOPZ: {{ p.uopz_name }} &bull; ZOPZ: {{ p.zopz_name }}</div>
+    </div>
+    <span class="etap-badge">{{ p.etap_info.label }}</span>
   </div>
 
-  <script src="{{ url_for('static', filename='js/dashboard.js') }}" defer></script>
+  <div class="zal-list">
+    <span class="zal-section-label">Etapy:</span>
+    {% for z in p.zal_statuses %}
+      <span class="zal-badge zal-{{ z.status }}">{{ z.name }}</span>
+    {% endfor %}
+  </div>
+
+  {% if p.etap_idx >= 7 %}
+    <div class="doc-links">
+      <a href="/praktyka/{{ p.id }}/dziennik" class="doc-link doc-link-dziennik">
+        Dziennik praktyki
+      </a>
+    </div>
+  {% endif %}
+
+  {% if p.docs_available %}
+    <div class="doc-links">
+      <span class="zal-section-label">Dokumenty:</span>
+      {% for doc_typ, doc_label, doc_status in p.docs_available %}
+        <a href="/praktyka/{{ p.id }}/dokument/{{ doc_typ }}"
+           class="doc-link doc-link-{{ doc_status }}">{{ doc_label }}</a>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if not is_done %}
+    <div class="akcja-row">
+      {# Manual close – only UOPZ at final stage #}
+      {% if p.can_act and p.etap == 'uopz_zamyka' %}
+        <button class="js-akcja-btn" data-pid="{{ p.id }}" data-akcja="zatwierdz">
+          Zamknij praktykę
+        </button>
+      {% endif %}
+      {# Reject button (UOPZ can reject zal2a back to ZOPZ) #}
+      {% if p.can_reject %}
+        <button class="js-akcja-btn danger" data-pid="{{ p.id }}" data-akcja="odrzuc">
+          {{ p.etap_info.reject_button }}
+        </button>
+      {% endif %}
+    </div>
+    {% if not p.can_act or p.etap not in ('uopz_zamyka',) %}
+      <p class="awaiting-note">
+        {% if p.etap == 'dziennik_aktywny' %}
+          Dziennik w trakcie – etap zmieni się automatycznie po zatwierdzeniu 120 wpisów.
+        {% elif p.etap_info.role %}
+          Oczekuje na działanie:
+          <strong>{{ {'dyrektor':'Dyrektora','uopz':'UOPZu','zopz':'ZOPZu','student':'Studenta'}[p.etap_info.role] }}</strong>
+          – etap zmieni się automatycznie po podpisaniu wymaganych dokumentów.
+        {% else %}
+          Praktyka w trakcie.
+        {% endif %}
+      </p>
+    {% endif %}
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# ══════════════════════════════════════════════════════════ #}
+{% if current_user.role == 'student' %}
+
+  {% if praktyka %}
+    {{ render_card(praktyka) }}
+  {% else %}
+    <p class="lead">Nie masz jeszcze przypisanej praktyki. Poczekaj na kontakt UOPZu.</p>
+  {% endif %}
+
+{% else %}
+
+  {% if current_user.role == 'uopz' %}
+    <details class="panel create-panel">
+      <summary>Utwórz nową praktykę</summary>
+      <form id="form-nowa-praktyka" class="create-form">
+        <div class="form-grid">
+          <div>
+            <label for="f-student">Student</label>
+            <select id="f-student" name="student_id" required>
+              <option value="">– wybierz studenta –</option>
+              {% for s in students %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="f-zaklad">Zakład pracy</label>
+            <select id="f-zaklad" name="zaklad_id" required>
+              <option value="">– wybierz zakład –</option>
+              {% for z in zaklady %}
+                <option value="{{ z.id }}">{{ z.nazwa }} (ZOPZ: {{ z.zopz_name }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="f-od">Data rozpoczęcia</label>
+            <input id="f-od" name="data_od" type="date" required>
+          </div>
+          <div>
+            <label for="f-do">Data zakończenia</label>
+            <input id="f-do" name="data_do" type="date" required>
+          </div>
+        </div>
+        <button type="submit">Utwórz praktykę</button>
+      </form>
+    </details>
+  {% endif %}
+
+  {% set active_praktyki = praktyki | selectattr('etap', 'ne', 'zamknieta') | list %}
+  {% set done_praktyki   = praktyki | selectattr('etap', 'equalto', 'zamknieta') | list %}
+
+  <h2>Aktywne praktyki</h2>
+  {% if active_praktyki %}
+    <div class="praktyki-list">
+      {% for p in active_praktyki %}{{ render_card(p) }}{% endfor %}
+    </div>
+  {% else %}
+    <p class="lead">Brak aktywnych praktyk.</p>
+  {% endif %}
+
+  {% if done_praktyki %}
+    <h2 class="section-sep">Zakończone praktyki</h2>
+    <div class="praktyki-list">
+      {% for p in done_praktyki %}{{ render_card(p) }}{% endfor %}
+    </div>
+  {% endif %}
+
+{% endif %}
+
+<script>
+// ── "Utwórz praktykę" via API ─────────────────────────────
+(function () {
+  var form = document.getElementById('form-nowa-praktyka');
+  if (!form) return;
+  submitForm(form, '/api/praktyki', 'POST', function () {
+    flashSuccess('Praktyka została utworzona.');
+    setTimeout(function () { window.location.reload(); }, 800);
+  });
+})();
+
+// ── Action buttons via API ────────────────────────────────
+document.querySelectorAll('.js-akcja-btn').forEach(function (btn) {
+  btn.addEventListener('click', async function () {
+    var akcja = btn.dataset.akcja;
+    var confirmMsg = akcja === 'odrzuc'
+      ? 'Czy na pewno chcesz odrzucić i odesłać do ZOPZu?'
+      : 'Czy na pewno chcesz przejść do kolejnego etapu?';
+    if (!confirm(confirmMsg)) return;
+
+    btn.disabled = true;
+    try {
+      var result = await apiCall('/api/praktyki/' + btn.dataset.pid + '/akcja', 'POST', { akcja: akcja });
+      flashSuccess(result.data ? result.data.message : 'Akcja wykonana.');
+      setTimeout(function () { window.location.reload(); }, 600);
+    } catch (err) {
+      btn.disabled = false;
+      var msg = 'Błąd: ' + err.message;
+      if (err.details && err.details.brakujace && err.details.brakujace.length) {
+        msg += '\n\nBrakujące dokumenty / podpisy:\n• ' + err.details.brakujace.join('\n• ');
+      }
+      alert(msg);
+    }
+  });
+});
+</script>
 {% endblock %}

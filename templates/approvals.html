@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h1>Zatwierdzanie uzytkownikow</h1>
+  <div class="card">
+    <p class="note">Lista kont oczekujacych na aktywacje (email/haslo).</p>
+    {% if users and users|length %}
+      <div class="table-wrap">
+        <table class="journal-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Imie i nazwisko</th>
+              <th>Email</th>
+              <th>Zaklad</th>
+              <th>Akcja</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for user in users %}
+              <tr>
+                <td>{{ user["id"] }}</td>
+                <td>{{ user["imie"] }} {{ user["nazwisko"] }}</td>
+                <td>{{ user["email"] }}</td>
+                <td>{{ user["zaklad_nazwa"] or "-" }}</td>
+                <td>
+                  <form method="post" action="/zatwierdzanie/{{ user["id"] }}/approve">
+                    <button type="submit">Zatwierdz</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p>Brak oczekujacych kont.</p>
+    {% endif %}
+  </div>
+{% endblock %}
