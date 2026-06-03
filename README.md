@@ -30,7 +30,7 @@ MICROSOFT_REDIRECT_URI=http://127.0.0.1:5000/auth/callback
 DIRECTOR_EMAIL=dyrektor@uczelnia.pl
 ```
 
-Logowanie lokalne (bez Azure AD) dostępne przez `/register` i `/login`.
+Logowanie lokalne dla ZOPZ (bez Azure AD) dostępne przez `/register` i `/login`. Logowanie poprzez Microsoft automatycznie przydziela odpowiednie role.
 
 ## Role użytkowników
 
