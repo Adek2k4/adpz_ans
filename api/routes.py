@@ -2,7 +2,7 @@
 import json
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request
 from flask_login import current_user
 
 from .db import (
@@ -366,6 +366,36 @@ def api_dziennik_zatwierdz(pid, page_num):
 
 
 # ── Dokumenty ─────────────────────────────────────────────────────────────────
+
+@api_bp.route("/api/praktyki/<int:pid>/dokumenty/zal1/pdf", methods=["GET"])
+def api_zal1_pdf(pid):
+    if e := _auth(): return e
+    p = get_praktyka_by_id(pid, current_user)
+    if not p or not _involved(p):
+        return _err("Nie znaleziono.", 404)
+
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT zawartosc_json FROM dokument WHERE praktyka_id=? AND typ='zal1'",
+            (pid,),
+        ).fetchone()
+
+    dok = {}
+    if row:
+        try:
+            dok = json.loads(row["zawartosc_json"])
+        except (json.JSONDecodeError, TypeError):
+            dok = {}
+
+    from .pdf_zal1 import generate_zal1_pdf
+    pdf_bytes = generate_zal1_pdf(dict(p), dok)
+
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=zal1_porozumienie_{pid}.pdf"},
+    )
+
 
 @api_bp.route("/api/praktyki/<int:pid>/dokumenty/<typ>", methods=["GET"])
 def api_dokument_get(pid, typ):

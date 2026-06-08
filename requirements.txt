@@ -3,3 +3,4 @@ Flask-Login
 Authlib
 python-dotenv
 requests
+reportlab

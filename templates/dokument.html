@@ -66,9 +66,15 @@
     <strong>Zakład:</strong> {{ praktyka.zaklad_nazwa }} &bull;
     <strong>Okres:</strong> {{ praktyka.data_rozpoczecia }} – {{ praktyka.data_zakonczenia }}
   </div>
-  {% if updated_at %}
-    <div class="doc-updated">Ostatnio zapisano: {{ updated_at[:19]|replace('T',' ') }}</div>
-  {% endif %}
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    {% if updated_at %}
+      <span class="doc-updated">Ostatnio zapisano: {{ updated_at[:19]|replace('T',' ') }}</span>
+    {% endif %}
+    {% if typ == 'zal1' %}
+      <a href="/api/praktyki/{{ praktyka.id }}/dokumenty/zal1/pdf"
+         class="btn-pdf" target="_blank">&#8595; Pobierz PDF</a>
+    {% endif %}
+  </div>
 </div>
 
 {% if not can_edit %}
