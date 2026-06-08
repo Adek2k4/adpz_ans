@@ -22,7 +22,7 @@ ETAPY = [
     {"id": "zopz_podpisuje_wstepne",   "label": "Oczekuje podpisu ZOPZu (zał1, zał2)",                        "role": "zopz",     "button": "Podpisz i odeślij załączniki wstępne (zał1, zał2)",        "can_reject": False},
     {"id": "zopz_wypelnia_zal2a",      "label": "ZOPZ wypełnia harmonogram (zał2a)",                          "role": "zopz",     "button": "Wyślij harmonogram do podpisu studenta",                    "can_reject": False},
     {"id": "student_podpisuje_zal2a",  "label": "Oczekuje podpisu studenta (zał2a)",                          "role": "student",  "button": "Podpisz harmonogram (zał2a)",                               "can_reject": False},
-    {"id": "uopz_podpisuje_zal2a",     "label": "Oczekuje podpisu UOPZu (zał2a)",                             "role": "uopz",     "button": "Podpisz harmonogram (zał2a)",                               "can_reject": True,  "reject_button": "Odrzuć i odeślij do ZOPZu"},
+    {"id": "uopz_podpisuje_zal2a",     "label": "Oczekuje podpisu UOPZu (zał2a)",                             "role": "uopz",     "button": "Podpisz harmonogram (zał2a)",                               "can_reject": True,  "reject_button": "Odrzuć załącznik 2a"},
     {"id": "dyrektor_wysyla_zal3_1",   "label": "Oczekuje skierowania od dyrektora (zał3.1)",                 "role": "dyrektor", "button": "Podpisz i wyślij skierowanie (zał3.1)",                     "can_reject": False},
     {"id": "zopz_podpisuje_zal3_2",    "label": "Oczekuje podpisu ZOPZu – szkolenie BHP (zał3.2)",           "role": "zopz",     "button": "Zatwierdź szkolenie BHP (zał3.2)",                          "can_reject": False},
     {"id": "dziennik_aktywny",         "label": "Dziennik praktyki w trakcie",                                "role": None,       "button": None,                                                        "can_reject": False},
@@ -148,6 +148,7 @@ def _enrich_praktyka(row, user, conn=None):
         (typ, label, "current" if typ in _current_typs else "past")
         for typ, label in DOKUMENT_TYPY.items()
         if idx >= DOKUMENT_AVAILABLE_FROM_IDX[typ]
+        and not (typ == "zal5" and user.role != "student")
     ]
     p["dziennik_total"] = 0
     p["dziennik_confirmed"] = 0

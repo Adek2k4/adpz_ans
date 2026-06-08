@@ -513,7 +513,7 @@
       <div class="ankieta-choices">
         {% for s in skala %}
           <label class="ankieta-choice {% if cur_val == s %}choice-selected{% endif %}">
-            <input type="radio" name="p{{ loop.index }}" value="{{ s }}"
+            <input type="radio" name="p{{ pnum }}" value="{{ s }}"
               {% if cur_val == s %}checked{% endif %}
               {% if not can_edit %}disabled{% endif %}>
             <span>{{ s }}</span>
@@ -697,6 +697,9 @@
       var hasHarm = false;
       form.querySelectorAll('[name^="harm_dzial_"]').forEach(function (el) { if (el.value.trim()) hasHarm = true; });
       if (!hasHarm) errors.push('Harmonogram (co najmniej 1 wiersz)');
+      var totalHours = 0;
+      form.querySelectorAll('[name^="harm_dni_"]').forEach(function (el) { totalHours += parseInt(el.value) || 0; });
+      if (totalHours < 120) errors.push('Łączna liczba godzin w harmonogramie musi wynosić co najmniej 120 (aktualnie: ' + totalHours + ')');
     }
     return errors;
   }
