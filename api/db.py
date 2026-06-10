@@ -99,6 +99,7 @@ _DOK_TYPY_ALL = list(DOKUMENT_TYPY.keys())
 _PRAKTYKA_SQL = """
     SELECT
         p.id, p.etap, p.data_rozpoczecia, p.data_zakonczenia,
+        p.nr_albumu, p.specjalnosc,
         s.id  AS student_id,  (s.imie  || ' ' || s.nazwisko)  AS student_name,
         u.id  AS uopz_id,     (u.imie  || ' ' || u.nazwisko)  AS uopz_name,
         z.id  AS zaklad_id,   z.nazwa                          AS zaklad_nazwa,
@@ -160,9 +161,22 @@ def _enrich_praktyka(row, user, conn=None):
         ).fetchone()
         p["dziennik_total"] = stats["total"] or 0
         p["dziennik_confirmed"] = int(stats["confirmed"] or 0)
-        etap_info["label"] = (
-            f"Dziennik praktyki w trakcie ({p['dziennik_confirmed']}/120 wpisów potwierdzonych)"
-        )
+        # Self-heal: if all 120 entries are confirmed, advance past the dziennik
+        # stage even if the page-confirm route did not (re-entry, ordering, etc.).
+        if p["dziennik_confirmed"] >= 120:
+            conn.execute(
+                "UPDATE praktyka SET etap='zal7_do_podpisania', updated_at=? WHERE id=?",
+                (datetime.now().isoformat(timespec="seconds"), p["id"]),
+            )
+            p["etap"] = "zal7_do_podpisania"
+            idx = ETAP_IDX.get(p["etap"], idx)
+            etap_info = dict(ETAPY[idx])
+            p["etap_idx"] = idx
+            p["zal_statuses"] = _compute_zal_statuses(idx)
+        else:
+            etap_info["label"] = (
+                f"Dziennik praktyki w trakcie ({p['dziennik_confirmed']}/120 wpisów potwierdzonych)"
+            )
     p["etap_info"] = etap_info
 
     role = etap_info["role"]
@@ -539,8 +553,37 @@ def init_db():
                 zaklad_id INTEGER NOT NULL REFERENCES zaklad(id),
                 data_rozpoczecia DATE NOT NULL, data_zakonczenia DATE NOT NULL,
                 etap VARCHAR(32) NOT NULL DEFAULT 'dyrektor_wysyla_wstepne',
+                nr_albumu VARCHAR(16) NOT NULL DEFAULT '',
+                specjalnosc VARCHAR(128) NOT NULL DEFAULT '',
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             )""")
+        p_cols = [r[1] for r in c.execute("PRAGMA table_info(praktyka)").fetchall()]
+        if "nr_albumu" not in p_cols:
+            c.execute("ALTER TABLE praktyka ADD COLUMN nr_albumu VARCHAR(16) NOT NULL DEFAULT ''")
+        if "specjalnosc" not in p_cols:
+            c.execute("ALTER TABLE praktyka ADD COLUMN specjalnosc VARCHAR(128) NOT NULL DEFAULT ''")
 
         c.execute("UPDATE praktyka SET etap='dziennik_aktywny' WHERE etap='w_trakcie'")
+
+        # Application-level key/value settings (e.g. admin password hash)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS app_setting (
+                klucz VARCHAR(64) PRIMARY KEY,
+                wartosc TEXT NOT NULL DEFAULT ''
+            )""")
+
+
+def get_setting(key, default=None):
+    with get_db_connection() as c:
+        row = c.execute("SELECT wartosc FROM app_setting WHERE klucz=?", (key,)).fetchone()
+    return row["wartosc"] if row else default
+
+
+def set_setting(key, value):
+    with get_db_connection() as c:
+        c.execute(
+            "INSERT INTO app_setting (klucz, wartosc) VALUES (?, ?)"
+            " ON CONFLICT(klucz) DO UPDATE SET wartosc=excluded.wartosc",
+            (key, value),
+        )

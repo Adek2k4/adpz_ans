@@ -70,10 +70,8 @@
     {% if updated_at %}
       <span class="doc-updated">Ostatnio zapisano: {{ updated_at[:19]|replace('T',' ') }}</span>
     {% endif %}
-    {% if typ == 'zal1' %}
-      <a href="/api/praktyki/{{ praktyka.id }}/dokumenty/zal1/pdf"
-         class="btn-pdf" target="_blank">&#8595; Pobierz PDF</a>
-    {% endif %}
+    <a href="/api/praktyki/{{ praktyka.id }}/dokumenty/{{ typ }}/pdf"
+       class="btn-pdf" target="_blank">&#8595; Pobierz PDF</a>
   </div>
 </div>
 
@@ -214,10 +212,17 @@
 
 <div class="field-group">
   <div class="field"><label>Student</label><input readonly value="{{ praktyka.student_name }}"></div>
+  <div class="field"><label>Nr albumu</label><input readonly value="{{ praktyka.nr_albumu or '' }}"></div>
+  <div class="field"><label>Specjalność</label><input readonly value="{{ praktyka.specjalnosc or '' }}"></div>
+</div>
+<div class="field-group">
   <div class="field"><label>Miejsce praktyki</label><input readonly value="{{ praktyka.zaklad_nazwa }}"></div>
   <div class="field"><label>Termin od</label><input readonly value="{{ praktyka.data_rozpoczecia }}"></div>
   <div class="field"><label>Termin do</label><input readonly value="{{ praktyka.data_zakonczenia }}"></div>
 </div>
+{% if not praktyka.nr_albumu or not praktyka.specjalnosc %}
+  <p class="note">⚠ Numer albumu / specjalność uzupełnia student w panelu („Moje dane do dokumentów").</p>
+{% endif %}
 
 <h3>Program praktyki – efekty kształcenia</h3>
 <div class="table-wrap">
@@ -309,6 +314,7 @@
 
 <div class="field-group">
   <div class="field"><label>Imię i nazwisko studenta</label><input readonly value="{{ praktyka.student_name }}"></div>
+  <div class="field"><label>Nr albumu</label><input readonly value="{{ praktyka.nr_albumu or '' }}"></div>
   <div class="field"><label>Kierunek</label><input readonly value="Informatyka"></div>
 </div>
 <div class="field-group">

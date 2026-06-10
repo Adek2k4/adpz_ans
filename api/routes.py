@@ -176,6 +176,32 @@ def api_praktyka_get(pid):
     return _ok(p)
 
 
+@api_bp.route("/api/praktyki/<int:pid>/dane-studenta", methods=["PUT", "POST"])
+def api_dane_studenta(pid):
+    """Student sets nr albumu and specjalność – shared across all documents."""
+    if e := _auth(): return e
+    p = get_praktyka_by_id(pid, current_user)
+    if not p or not _involved(p):
+        return _err("Nie znaleziono.", 404)
+    if current_user.role != "student" or current_user.id != p["student_id"]:
+        return _err("Tylko student może edytować te dane.", 403)
+
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+    else:
+        data = request.form
+    nr_albumu   = (data.get("nr_albumu") or "").strip()
+    specjalnosc = (data.get("specjalnosc") or "").strip()
+
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE praktyka SET nr_albumu=?, specjalnosc=?, updated_at=? WHERE id=?",
+            (nr_albumu, specjalnosc, _NOW(), pid),
+        )
+    return _ok({"nr_albumu": nr_albumu, "specjalnosc": specjalnosc,
+                "message": "Dane studenta zapisane."})
+
+
 @api_bp.route("/api/praktyki/<int:pid>/akcja", methods=["POST"])
 def api_praktyka_akcja(pid):
     if e := _auth(): return e
@@ -281,12 +307,10 @@ def api_dziennik_add(pid):
         data_wpisu   = (data.get("data_wpisu") or "").strip()
         opis_prac    = (data.get("opis_prac") or "").strip()
         nr_efektow   = data.get("nr_efektow", [])
-        osoba        = (data.get("osoba_nadzorujaca") or "").strip()
     else:
         data_wpisu   = (request.form.get("data_wpisu") or "").strip()
         opis_prac    = (request.form.get("opis_prac") or "").strip()
         nr_efektow   = request.form.getlist("nr_efektow")
-        osoba        = (request.form.get("osoba_nadzorujaca") or "").strip()
 
     if not data_wpisu or not opis_prac:
         return _err("Wymagane pola: data_wpisu, opis_prac.")
@@ -301,10 +325,10 @@ def api_dziennik_add(pid):
         numer = total + 1
         conn.execute(
             """INSERT INTO wpis_dziennika
-               (praktyka_id, numer_dnia, data_wpisu, opis_prac, nr_efektow, osoba_nadzorujaca, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (praktyka_id, numer_dnia, data_wpisu, opis_prac, nr_efektow, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
             (pid, numer, data_wpisu, opis_prac,
-             json.dumps(nr_efektow, ensure_ascii=False), osoba or None, now),
+             json.dumps(nr_efektow, ensure_ascii=False), now),
         )
 
     return _ok({"numer_dnia": numer, "message": f"Wpis nr {numer} dodany."}, 201)
@@ -367,17 +391,20 @@ def api_dziennik_zatwierdz(pid, page_num):
 
 # ── Dokumenty ─────────────────────────────────────────────────────────────────
 
-@api_bp.route("/api/praktyki/<int:pid>/dokumenty/zal1/pdf", methods=["GET"])
-def api_zal1_pdf(pid):
+@api_bp.route("/api/praktyki/<int:pid>/dokumenty/<typ>/pdf", methods=["GET"])
+def api_dokument_pdf(pid, typ):
     if e := _auth(): return e
+    from .pdf_docs import GENERATORS
+    if typ not in GENERATORS:
+        return _err("Brak generatora PDF dla tego dokumentu.", 404)
     p = get_praktyka_by_id(pid, current_user)
     if not p or not _involved(p):
         return _err("Nie znaleziono.", 404)
 
     with get_db_connection() as conn:
         row = conn.execute(
-            "SELECT zawartosc_json FROM dokument WHERE praktyka_id=? AND typ='zal1'",
-            (pid,),
+            "SELECT zawartosc_json FROM dokument WHERE praktyka_id=? AND typ=?",
+            (pid, typ),
         ).fetchone()
 
     dok = {}
@@ -387,13 +414,59 @@ def api_zal1_pdf(pid):
         except (json.JSONDecodeError, TypeError):
             dok = {}
 
-    from .pdf_zal1 import generate_zal1_pdf
-    pdf_bytes = generate_zal1_pdf(dict(p), dok)
+    # zal3_1 pulls porozumienie nr/data from zal1 if missing
+    if typ == "zal3_1" and (not dok.get("nr_porozumienia") or not dok.get("data_porozumienia")):
+        with get_db_connection() as conn:
+            r1 = conn.execute(
+                "SELECT zawartosc_json FROM dokument WHERE praktyka_id=? AND typ='zal1'", (pid,)
+            ).fetchone()
+        if r1:
+            try:
+                z1 = json.loads(r1["zawartosc_json"])
+                dok.setdefault("nr_porozumienia", z1.get("numer", ""))
+                dok.setdefault("data_porozumienia", z1.get("data", ""))
+            except (json.JSONDecodeError, TypeError):
+                pass
 
+    pdf_bytes = GENERATORS[typ](dict(p), dok)
     return Response(
         pdf_bytes,
         mimetype="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=zal1_porozumienie_{pid}.pdf"},
+        headers={"Content-Disposition": f"attachment; filename={typ}_praktyka{pid}.pdf"},
+    )
+
+
+@api_bp.route("/api/praktyki/<int:pid>/dziennik/pdf", methods=["GET"])
+def api_dziennik_pdf(pid):
+    if e := _auth(): return e
+    p = get_praktyka_by_id(pid, current_user)
+    if not p or not _involved(p):
+        return _err("Nie znaleziono.", 404)
+
+    with get_db_connection() as conn:
+        wpisy = [dict(w) for w in conn.execute(
+            "SELECT * FROM wpis_dziennika WHERE praktyka_id=? ORDER BY numer_dnia", (pid,)
+        ).fetchall()]
+    for w in wpisy:
+        try:
+            w["nr_efektow"] = json.loads(w["nr_efektow"])
+        except (json.JSONDecodeError, TypeError):
+            w["nr_efektow"] = []
+    pages = []
+    for i in range(0, 120, 10):
+        pe = [w for w in wpisy if i < w["numer_dnia"] <= i + 10]
+        confirmed = len(pe) == 10 and all(w["potwierdzony"] for w in pe)
+        pages.append({
+            "num": i // 10 + 1, "from_day": i + 1, "to_day": i + 10,
+            "entries": pe, "confirmed": confirmed,
+        })
+
+    from .pdf_docs import gen_dziennik
+    pdf_bytes = gen_dziennik(dict(p), wpisy, pages)
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=dziennik_praktyka{pid}.pdf"},
     )
 
 
@@ -565,23 +638,21 @@ def api_dziennik_edit(pid, numer_dnia):
             data_wpisu = (data.get("data_wpisu") or "").strip()
             opis_prac  = (data.get("opis_prac") or "").strip()
             nr_efektow = data.get("nr_efektow", [])
-            osoba      = (data.get("osoba_nadzorujaca") or "").strip()
         else:
             data_wpisu = (request.form.get("data_wpisu") or "").strip()
             opis_prac  = (request.form.get("opis_prac") or "").strip()
             nr_efektow = request.form.getlist("nr_efektow")
-            osoba      = (request.form.get("osoba_nadzorujaca") or "").strip()
 
         if not data_wpisu or not opis_prac:
             return _err("Wymagane pola: data_wpisu, opis_prac.")
 
         conn.execute(
             "UPDATE wpis_dziennika"
-            " SET data_wpisu=?, opis_prac=?, nr_efektow=?, osoba_nadzorujaca=?"
+            " SET data_wpisu=?, opis_prac=?, nr_efektow=?"
             " WHERE praktyka_id=? AND numer_dnia=?",
             (data_wpisu, opis_prac,
              json.dumps(nr_efektow, ensure_ascii=False),
-             osoba or None, pid, numer_dnia),
+             pid, numer_dnia),
         )
 
     return _ok({"numer_dnia": numer_dnia, "message": f"Wpis nr {numer_dnia} zaktualizowany."})
@@ -614,12 +685,11 @@ def api_dev_fill_dziennik(pid):
             entry_date = (start + timedelta(days=numer - 1)).isoformat()
             conn.execute(
                 "INSERT OR IGNORE INTO wpis_dziennika"
-                " (praktyka_id, numer_dnia, data_wpisu, opis_prac, nr_efektow,"
-                "  osoba_nadzorujaca, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " (praktyka_id, numer_dnia, data_wpisu, opis_prac, nr_efektow, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
                 (pid, numer, entry_date,
                  f"Wpis testowy nr {numer} – praca w zakładzie.",
-                 json.dumps(["01", "02"]), "Jan Nadzorujący", now),
+                 json.dumps(["01", "02"]), now),
             )
             added += 1
 

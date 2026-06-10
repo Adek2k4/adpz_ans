@@ -16,6 +16,7 @@
             <a href="/">Start</a>
             <a href="/dashboard">Panel</a>
             <a href="/kontakt">Kontakt</a>
+            <a href="/admin">Admin</a>
             {% if current_user.is_authenticated %}
               <a href="/profil">Profil</a>
               {% if current_user.role == 'dyrektor' %}

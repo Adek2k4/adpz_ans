@@ -13,10 +13,14 @@
     <strong>Zakład:</strong> {{ praktyka.zaklad_nazwa }} &bull;
     <strong>Okres:</strong> {{ praktyka.data_rozpoczecia }} – {{ praktyka.data_zakonczenia }}
   </div>
-  <div>
-    <span class="dziennik-progress-label">Postęp:</span>
-    <strong>{{ confirmed_total }}/120</strong> wpisów potwierdzonych
-    ({{ total }} dodanych)
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <span>
+      <span class="dziennik-progress-label">Postęp:</span>
+      <strong>{{ confirmed_total }}/120</strong> wpisów potwierdzonych
+      ({{ total }} dodanych)
+    </span>
+    <a href="/api/praktyki/{{ praktyka.id }}/dziennik/pdf"
+       class="btn-pdf" target="_blank">&#8595; Pobierz PDF</a>
   </div>
 </div>
 
@@ -38,15 +42,9 @@
   <summary>Dodaj wpis do dziennika (dzień {{ total + 1 }}/120)</summary>
   <form id="form-wpis" class="create-form"
         data-api-url="/api/praktyki/{{ praktyka.id }}/dziennik">
-    <div class="field-group">
-      <div class="field">
-        <label>Data</label>
-        <input name="data_wpisu" type="date" required>
-      </div>
-      <div class="field">
-        <label>Osoba nadzorująca (opcjonalnie)</label>
-        <input name="osoba_nadzorujaca" type="text" placeholder="imię i nazwisko">
-      </div>
+    <div class="field">
+      <label>Data</label>
+      <input name="data_wpisu" type="date" required>
     </div>
     <div class="field">
       <label>Opis wykonanych prac</label>
@@ -100,7 +98,6 @@
               <th style="width:8rem">Data</th>
               <th>Opis wykonanych prac</th>
               <th style="width:8rem">Efekty</th>
-              <th style="width:10rem">Osoba nadzorująca</th>
               {% if can_edit_page %}<th style="width:5rem"></th>{% endif %}
             </tr>
           </thead>
@@ -115,7 +112,6 @@
                     <span class="ef-chip">E{{ ef }}</span>
                   {% endfor %}
                 </td>
-                <td>{{ w.osoba_nadzorujaca or '–' }}</td>
                 {% if can_edit_page %}
                   <td>
                     <button type="button" class="js-edit-toggle btn-small"
@@ -126,19 +122,13 @@
 
               {% if can_edit_page %}
               <tr id="edit-row-{{ w.numer_dnia }}" class="edit-row hidden">
-                <td colspan="6">
+                <td colspan="5">
                   <form class="edit-wpis-form create-form"
                         data-api-url="/api/praktyki/{{ praktyka.id }}/dziennik/{{ w.numer_dnia }}"
                         data-method="PUT">
-                    <div class="field-group">
-                      <div class="field">
-                        <label>Data</label>
-                        <input name="data_wpisu" type="date" value="{{ w.data_wpisu }}" required>
-                      </div>
-                      <div class="field">
-                        <label>Osoba nadzorująca</label>
-                        <input name="osoba_nadzorujaca" type="text" value="{{ w.osoba_nadzorujaca or '' }}">
-                      </div>
+                    <div class="field">
+                      <label>Data</label>
+                      <input name="data_wpisu" type="date" value="{{ w.data_wpisu }}" required>
                     </div>
                     <div class="field">
                       <label>Opis wykonanych prac</label>

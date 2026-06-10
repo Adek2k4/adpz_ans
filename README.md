@@ -5,7 +5,7 @@ Aplikacja Flask do zarządzania praktykami zawodowymi na kierunku Informatyka w 
 ## Wymagania
 
 - Python 3.10+
-- Flask, Flask-Login, Authlib, python-dotenv, werkzeug
+- Flask, Flask-Login, Authlib, python-dotenv, requests, reportlab
 
 ## Uruchomienie
 
@@ -27,10 +27,18 @@ MICROSOFT_CLIENT_ID=...
 MICROSOFT_CLIENT_SECRET=...
 MICROSOFT_TENANT_ID=common
 MICROSOFT_REDIRECT_URI=http://127.0.0.1:5000/auth/callback
-DIRECTOR_EMAIL=dyrektor@uczelnia.pl
 ```
 
-Logowanie lokalne dla ZOPZ (bez Azure AD) dostępne przez `/register` i `/login`. Logowanie poprzez Microsoft automatycznie przydziela odpowiednie role.
+Logowanie lokalne dla ZOPZ (bez Azure AD) dostępne przez `/register` i `/login`. Nowe konta otrzymują rolę `student`; role nadaje administrator (panel `/admin`).
+
+## Panel administratora (`/admin`)
+
+Dostępny pod adresem `/admin`, chroniony **samym hasłem** (niezależnym od kont użytkowników). Administrator może:
+
+- nadawać i zmieniać role wszystkich użytkowników (`student`, `uopz`, `zopz`, `dyrektor`),
+- zmienić własne hasło do panelu.
+
+Domyślne hasło przy pierwszym uruchomieniu: **`admin`** (należy je zmienić w panelu). Hasło przechowywane jest jako hash w tabeli `app_setting` w bazie.
 
 ## Role użytkowników
 
@@ -40,6 +48,7 @@ Logowanie lokalne dla ZOPZ (bez Azure AD) dostępne przez `/register` i `/login`
 | `uopz` | Uczelniany Opiekun Praktyki – tworzy praktyki, podpisuje dokumenty, zamyka praktykę |
 | `zopz` | Zakładowy Opiekun Praktyki – podpisuje dokumenty, zatwierdza strony dziennika |
 | `dyrektor` | Podpisuje porozumienie, skierowanie i protokół zaliczenia; zatwierdza konta |
+| administrator | Panel `/admin` (samo hasło) – nadaje role użytkownikom; nie jest kontem użytkownika |
 
 ## Workflow praktyki (13 etapów)
 
@@ -81,6 +90,12 @@ zamknieta                 → Praktyka zakończona
 
 Po podpisaniu dokumentu jego edycja jest **trwale zablokowana** dla danej roli.
 
+Każdy załącznik oraz dziennik można **pobrać w formacie PDF** (przycisk „Pobierz PDF").
+PDF-y są generowane biblioteką **reportlab**, odwzorowują układ oryginalnych wzorów
+z Regulaminu i są wypełnione danymi z bazy (w tym podpisami w formacie
+`Podpisano (data) + imię i nazwisko`). Czcionka z polskimi znakami pobierana jest
+z systemu (Times New Roman na Windows, Liberation/DejaVu Serif na Linux/Docker).
+
 ## REST API
 
 Wszystkie odpowiedzi mają format `{"ok": true, "data": {...}}` lub `{"ok": false, "error": "..."}`.
@@ -108,6 +123,8 @@ Wszystkie odpowiedzi mają format `{"ok": true, "data": {...}}` lub `{"ok": fals
 |--------|-----|------|
 | GET | `/api/praktyki/<id>/dokumenty/<typ>` | Pobierz dokument |
 | PUT | `/api/praktyki/<id>/dokumenty/<typ>` | Zapisz / podpisz dokument |
+| GET | `/api/praktyki/<id>/dokumenty/<typ>/pdf` | Pobierz załącznik jako PDF |
+| GET | `/api/praktyki/<id>/dziennik/pdf` | Pobierz dziennik jako PDF |
 
 Po każdym zapisie sprawdzane jest czy etap praktyki może się automatycznie zmienić.
 
@@ -127,17 +144,23 @@ api/
   __init__.py
   db.py                 # Stałe, helpery DB, init_db(), can_edit_dok(), parse_dok()
   routes.py             # Blueprint REST API
+  pdf_common.py         # Rejestracja czcionek, style i wspólne bloki PDF
+  pdf_docs.py           # Generatory PDF dla wszystkich załączników i dziennika
 static/
   styles.css
   js/api.js             # apiCall(), submitForm(), flashSuccess()
 templates/
   base.html
+  index.html            # Strona startowa
   dashboard.html        # Panel główny (role-based)
   dokument.html         # Wszystkie załączniki (1 plik, if/elif per typ)
   dziennik.html         # Dziennik 120 wpisów / 12 stron
   login.html
   profil.html
-  approvals.html
+  approvals.html        # Zatwierdzanie kont (dyrektor)
+  admin_login.html      # Logowanie do panelu /admin (hasło)
+  admin.html            # Panel administratora (role + zmiana hasła)
+  kontakt.html
 data/
   app.db                # SQLite (tworzony automatycznie)
 ```
@@ -147,10 +170,12 @@ data/
 ```sql
 uzytkownik  (id, imie, nazwisko, email, haslo_hash, rola, aktywny)
 zaklad      (id, nazwa, adres, nip, zopz_id)
-praktyka    (id, student_id, uopz_id, zaklad_id, data_rozpoczecia, data_zakonczenia, etap)
+praktyka    (id, student_id, uopz_id, zaklad_id, data_rozpoczecia, data_zakonczenia,
+             etap, nr_albumu, specjalnosc)
 dokument    (id, praktyka_id, typ, zawartosc_json, updated_at)
 wpis_dziennika (id, praktyka_id, numer_dnia, data_wpisu, opis_prac, nr_efektow,
-                osoba_nadzorujaca, potwierdzony, potwierdzone_at)
+                potwierdzony, potwierdzone_at)
+app_setting (klucz, wartosc)   -- m.in. hash hasła administratora
 ```
 
 ## Konta demonstracyjne

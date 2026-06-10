@@ -20,6 +20,7 @@ from api.db import (
     DOKUMENT_TYPY, EFEKTY_UCZENIA,
     can_edit_dok, get_db_connection, init_db,
     get_praktyki_for_role, get_praktyka_for_student, get_praktyka_by_id,
+    get_setting, set_setting,
 )
 from api.routes import api_bp
 
@@ -31,7 +32,10 @@ logging.basicConfig(level=logging.INFO)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 ROLE_OPTIONS = ["student", "uopz", "zopz", "dyrektor"]
-DIRECTOR_EMAIL = os.getenv("DIRECTOR_EMAIL", "").strip().lower()
+
+# Admin panel (/admin) – password-gated, separate from user accounts
+ADMIN_PW_KEY = "admin_password_hash"
+DEFAULT_ADMIN_PASSWORD = "admin"
 
 app.config["MICROSOFT_CLIENT_ID"]     = os.getenv("MICROSOFT_CLIENT_ID", "")
 app.config["MICROSOFT_CLIENT_SECRET"] = os.getenv("MICROSOFT_CLIENT_SECRET", "")
@@ -118,20 +122,18 @@ def _ensure_ms_user(email, name):
         return None
     row = _get_user_by_email(em)
     imie, nazwisko = _split_name(name)
-    is_dir = DIRECTOR_EMAIL and em == DIRECTOR_EMAIL
     if row:
         with get_db_connection() as conn:
             conn.execute(
-                "UPDATE uzytkownik SET imie=?,nazwisko=?,aktywny=1,rola=? WHERE email=?",
-                (imie, nazwisko, "dyrektor" if is_dir else row["rola"], em),
+                "UPDATE uzytkownik SET imie=?,nazwisko=?,aktywny=1 WHERE email=?",
+                (imie, nazwisko, em),
             )
         return _get_user_by_email(em)
-    role = "dyrektor" if is_dir else "student"
     with get_db_connection() as conn:
         conn.execute(
             "INSERT INTO uzytkownik (imie,nazwisko,email,haslo_hash,rola,aktywny,created_at)"
-            " VALUES (?,?,?,?,?,1,datetime('now'))",
-            (imie, nazwisko, em, "", role),
+            " VALUES (?,?,?,?,'student',1,datetime('now'))",
+            (imie, nazwisko, em, ""),
         )
     return _get_user_by_email(em)
 
@@ -151,6 +153,15 @@ def inject_notice():
 
 
 init_db()
+
+
+def _ensure_admin_password():
+    """Seed a default admin password on first run so /admin is reachable."""
+    if not get_setting(ADMIN_PW_KEY):
+        set_setting(ADMIN_PW_KEY, generate_password_hash(DEFAULT_ADMIN_PASSWORD))
+
+
+_ensure_admin_password()
 
 
 # ── Quick login helpers (for demo/presentation) ────────────────────────────────
@@ -254,21 +265,18 @@ def register():
         session["notice"] = "Uzytkownik o takim emailu juz istnieje."
         return redirect(url_for("login"))
 
-    is_dir = DIRECTOR_EMAIL and email == DIRECTOR_EMAIL
-    role, aktywny = ("dyrektor", True) if is_dir else ("student", False)
     imie, nazwisko = _split_name(name)
     with get_db_connection() as conn:
         cur = conn.execute(
             "INSERT INTO uzytkownik (imie,nazwisko,email,haslo_hash,rola,aktywny,created_at)"
-            " VALUES (?,?,?,?,?,?,datetime('now'))",
-            (imie, nazwisko, email, generate_password_hash(password), role, 1 if aktywny else 0),
+            " VALUES (?,?,?,?,'student',0,datetime('now'))",
+            (imie, nazwisko, email, generate_password_hash(password)),
         )
         conn.execute(
             "INSERT INTO zaklad (nazwa,adres,nip,zopz_id,created_at) VALUES (?,?,?,?,datetime('now'))",
             (zaklad_name, zaklad_address, zaklad_nip, cur.lastrowid),
         )
-    session["notice"] = ("Konto utworzone. Mozesz sie zalogowac." if aktywny
-                         else "Konto utworzone i oczekuje na zatwierdzenie przez dyrektora.")
+    session["notice"] = "Konto utworzone i oczekuje na zatwierdzenie przez dyrektora."
     return redirect(url_for("login"))
 
 
@@ -318,20 +326,10 @@ def logout():
 
 # ── User management ────────────────────────────────────────────────────────────
 
-@app.route("/profil", methods=["GET", "POST"])
+@app.route("/profil")
 @login_required
 def profil():
-    error = None
-    if request.method == "POST":
-        role = request.form.get("role", "").strip().lower()
-        if role not in ROLE_OPTIONS:
-            error = "Nieprawidlowa rola."
-        else:
-            with get_db_connection() as conn:
-                conn.execute("UPDATE uzytkownik SET rola=? WHERE id=?", (role, current_user.id))
-            session["notice"] = "Rola zostala zaktualizowana."
-            return redirect(url_for("profil"))
-    return render_template("profil.html", title="Profil", roles=ROLE_OPTIONS, error=error)
+    return render_template("profil.html", title="Profil")
 
 
 @app.route("/zatwierdzanie")
@@ -358,6 +356,80 @@ def approve_user(user_id):
         conn.execute("UPDATE uzytkownik SET aktywny=1, rola='zopz' WHERE id=?", (user_id,))
     session["notice"] = "Uzytkownik zostal zatwierdzony."
     return redirect(url_for("approvals"))
+
+
+# ── Admin panel (/admin) – password-gated, no user account needed ──────────────
+
+def _admin_required():
+    return bool(session.get("is_admin"))
+
+
+@app.route("/admin", methods=["GET"])
+def admin_panel():
+    if not _admin_required():
+        return render_template("admin_login.html", title="Panel administratora")
+    with get_db_connection() as conn:
+        users = conn.execute(
+            "SELECT id, imie, nazwisko, email, rola, aktywny FROM uzytkownik"
+            " ORDER BY rola, nazwisko, imie"
+        ).fetchall()
+    return render_template(
+        "admin.html", title="Panel administratora",
+        users=users, roles=ROLE_OPTIONS,
+    )
+
+
+@app.route("/admin/login", methods=["POST"])
+def admin_login():
+    password = request.form.get("password") or ""
+    stored = get_setting(ADMIN_PW_KEY, "")
+    if stored and check_password_hash(stored, password):
+        session["is_admin"] = True
+        session["notice"] = "Zalogowano do panelu administratora."
+    else:
+        session["notice"] = "Nieprawidlowe haslo administratora."
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/logout", methods=["POST"])
+def admin_logout():
+    session.pop("is_admin", None)
+    session["notice"] = "Wylogowano z panelu administratora."
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/user/<int:user_id>/rola", methods=["POST"])
+def admin_set_role(user_id):
+    if not _admin_required():
+        abort(403)
+    role = (request.form.get("role") or "").strip().lower()
+    if role not in ROLE_OPTIONS:
+        session["notice"] = "Nieprawidlowa rola."
+        return redirect(url_for("admin_panel"))
+    with get_db_connection() as conn:
+        conn.execute("UPDATE uzytkownik SET rola=?, aktywny=1 WHERE id=?", (role, user_id))
+    session["notice"] = "Rola uzytkownika zostala zmieniona."
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/haslo", methods=["POST"])
+def admin_change_password():
+    if not _admin_required():
+        abort(403)
+    current = request.form.get("current_password") or ""
+    new = request.form.get("new_password") or ""
+    confirm = request.form.get("confirm_password") or ""
+    stored = get_setting(ADMIN_PW_KEY, "")
+    if not check_password_hash(stored, current):
+        session["notice"] = "Aktualne haslo jest nieprawidlowe."
+    elif len(new) < 4:
+        session["notice"] = "Nowe haslo musi miec co najmniej 4 znaki."
+    elif new != confirm:
+        session["notice"] = "Nowe hasla nie sa identyczne."
+    else:
+        set_setting(ADMIN_PW_KEY, generate_password_hash(new))
+        session["notice"] = "Haslo administratora zostalo zmienione."
+    return redirect(url_for("admin_panel"))
 
 
 # ── Page rendering (thin — mutations go through /api/) ─────────────────────────

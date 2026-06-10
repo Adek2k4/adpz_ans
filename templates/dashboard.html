@@ -81,6 +81,27 @@
 {% if current_user.role == 'student' %}
 
   {% if praktyka %}
+    <details class="panel create-panel" {% if not praktyka.nr_albumu or not praktyka.specjalnosc %}open{% endif %}>
+      <summary>Moje dane do dokumentów (nr albumu, specjalność)</summary>
+      <form id="form-dane-studenta" class="create-form"
+            data-api-url="/api/praktyki/{{ praktyka.id }}/dane-studenta">
+        <div class="form-grid">
+          <div>
+            <label for="f-album">Numer albumu</label>
+            <input id="f-album" name="nr_albumu" value="{{ praktyka.nr_albumu or '' }}"
+                   placeholder="np. 12345" required>
+          </div>
+          <div>
+            <label for="f-spec">Specjalność</label>
+            <input id="f-spec" name="specjalnosc" value="{{ praktyka.specjalnosc or '' }}"
+                   placeholder="np. Inżynieria oprogramowania" required>
+          </div>
+        </div>
+        <p class="note">Dane są używane automatycznie w załącznikach (2a, 3.1, 4, 7) i dzienniku.</p>
+        <button type="submit">Zapisz dane</button>
+      </form>
+    </details>
+
     {{ render_card(praktyka) }}
   {% else %}
     <p class="lead">Nie masz jeszcze przypisanej praktyki. Poczekaj na kontakt UOPZu.</p>
@@ -154,6 +175,15 @@
   submitForm(form, '/api/praktyki', 'POST', function () {
     flashSuccess('Praktyka została utworzona.');
     setTimeout(function () { window.location.reload(); }, 800);
+  });
+})();
+
+// ── "Moje dane do dokumentów" (student) via API ───────────
+(function () {
+  var form = document.getElementById('form-dane-studenta');
+  if (!form) return;
+  submitForm(form, form.dataset.apiUrl, 'PUT', function (res) {
+    flashSuccess(res.data ? res.data.message : 'Dane zapisane.');
   });
 })();
 
