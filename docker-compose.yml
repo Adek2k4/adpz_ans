@@ -1,0 +1,26 @@
+services:
+  web:
+    build: .
+    environment:
+      # Ustaw własny, losowy klucz (np. w pliku .env obok docker-compose.yml)
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-zmien-mnie-na-losowy-klucz}
+      # Opcjonalnie logowanie Microsoft (bez tego działają konta lokalne i DEV):
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
+      - MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID:-common}
+    volumes:
+      - ./data:/app/data          # trwały SQLite (data/app.db)
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"                  # publiczny port – to forwardujesz na router
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./static:/usr/share/nginx/static:ro
+    depends_on:
+      - web
+    restart: unless-stopped

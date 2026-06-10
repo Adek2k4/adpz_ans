@@ -1,0 +1,13 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+*.log
+.env
+data/*.db
+data/api_*.json
+Dokumentacja/

@@ -16,8 +16,15 @@ pip install -r requirements.txt
 copy .env.example .env   # uzupełnij dane
 python app.py
 ```
+Aplikacja dostępna pod: http://localhost:5000
 
-Aplikacja dostępna pod: http://127.0.0.1:5000
+
+Komenda do uruchomienia w dockerze:
+```
+docker compose up -d --build
+```
+Aplikacja dostępna pod: http://localhost:8080
+
 
 ## Konfiguracja (.env)
 
