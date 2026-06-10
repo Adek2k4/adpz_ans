@@ -1,39 +1,48 @@
 ```mermaid
 flowchart TD
-    A([Użytkownik próbuje edytować dokument]) --> B{Czy użytkownik\njest zalogowany?}
+    A([Użytkownik otwiera załącznik]) --> B{Czy użytkownik\njest zalogowany?}
 
     B -- Nie --> C[Przekieruj na\nstronę logowania]
     C --> KONIEC1([Koniec])
 
-    B -- Tak --> D{Jaka rola\nużytkownika?}
+    B -- Tak --> G{Czy użytkownik jest\nuczestnikiem praktyki?\n(student / uopz / zopz / dyrektor)}
+    G -- Nie --> X[403 Forbidden]
+    X --> KONIEC0([Koniec])
 
-    D -- UOPZ / Dyrektor --> E[Wyświetl podgląd\nRead-only]
-    D -- ZOPZ --> E
-    D -- Student --> F{Czy status\ndokumentu to\nDraft lub Rejected?}
+    G -- Tak --> D{Czy rola ma prawo\nedycji tego typu\nzałącznika?}
+    D -- Nie --> E[Podgląd Read-only]
 
-    F -- Nie --> E
+    D -- Tak --> F{Czy ta rola\nzłożyła już swój\npodpis?}
+    F -- Tak --> E
+    F -- Nie --> H[Udostępnij formularz edycji\n+ przycisk „Podpisz”]
 
-    F -- Tak --> G{Czy dokument\nnależy do\ntego studenta?}
+    H --> I{Akcja użytkownika}
+    I -- Zapis --> J[Walidacja w backendzie\nparse_dok – tylko pola tej roli]
+    I -- Podpis --> K[Potwierdzenie w UI\n+ zapis podpisu]
+    I -- Anuluj --> KONIEC2([Wróć])
 
-    G -- Nie --> E
-    G -- Tak --> H[Udostępnij\nformularz edycji]
-
-    H --> I{Student zapisuje\nzmiany?}
-    I -- Tak --> J[Walidacja danych\nw backendzie Flask]
-    I -- Nie --> KONIEC2([Anuluj / Wróć])
-
-    J --> L{Dane\nkompletne?}
-    L -- Nie --> M[Wyświetl błędy\nwalidacji]
-    M --> H
-    L -- Tak --> N[Zapisz zmiany\nw bazie JSON\nstatus: Draft]
-    N --> KONIEC3([Koniec – dokument zapisany])
+    J --> N[Zapis do dokument.zawartosc_json]
+    K --> N
+    N --> O[_try_auto_advance:\nczy wszystkie podpisy etapu złożone?]
+    O -- Tak --> P[Zmiana etapu praktyki]
+    O -- Nie --> Q[Pozostań na etapie]
+    P --> KONIEC3([Koniec – zapisano])
+    Q --> KONIEC3
 
     E --> KONIEC4([Koniec – tryb podglądu])
-    C --> KONIEC1
 
     style H fill:#1D9E75,color:#fff
     style E fill:#888780,color:#fff
     style C fill:#E24B4A,color:#fff
-    style M fill:#BA7517,color:#fff
+    style X fill:#E24B4A,color:#fff
+```
 
+## Uwagi
+
+- Uprawnienia wyznacza funkcja **`can_edit_dok(typ, praktyka, user, dok_data)`** w `api/db.py`:
+  sprawdza udział w praktyce, dopasowanie roli do typu załącznika oraz to, czy rola już
+  podpisała (po podpisie część dokumentu jest trwale zablokowana).
+- Zapis przechodzi przez **`parse_dok()`**, który aktualizuje wyłącznie pola należące do roli
+  bieżącego użytkownika (np. ZOPZ wypełnia efekty zał4, UOPZ – opinię).
+- Po każdym zapisie sprawdzane jest, czy etap praktyki może zmienić się automatycznie.
 ```

@@ -1,146 +1,73 @@
+-- Schemat bazy danych (SQLite) – odpowiada init_db() w api/db.py
+-- Baza tworzona jest automatycznie przy starcie aplikacji (data/app.db).
+
 CREATE TABLE uzytkownik (
     id          INTEGER      PRIMARY KEY AUTOINCREMENT,
     imie        VARCHAR(64)  NOT NULL,
     nazwisko    VARCHAR(64)  NOT NULL,
     email       VARCHAR(128) NOT NULL UNIQUE,
-    haslo_hash  VARCHAR(256) NOT NULL,
+    haslo_hash  VARCHAR(256) NOT NULL,           -- puste dla kont Microsoft (OAuth)
     rola        VARCHAR(16)  NOT NULL CHECK (rola IN ('student','uopz','zopz','dyrektor')),
-    aktywny     BOOLEAN      NOT NULL DEFAULT 1,
+    aktywny     BOOLEAN      NOT NULL DEFAULT 1,  -- konta lokalne ZOPZ czekają na zatwierdzenie
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE zaklad (
-    id                   INTEGER      PRIMARY KEY AUTOINCREMENT,
-    nazwa                VARCHAR(256) NOT NULL,
-    adres                VARCHAR(256) NOT NULL,
-    nip                  VARCHAR(10)  UNIQUE,
-    zopz_id              INTEGER      NOT NULL REFERENCES uzytkownik(id),
-    created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id          INTEGER      PRIMARY KEY AUTOINCREMENT,
+    nazwa       VARCHAR(256) NOT NULL,
+    adres       VARCHAR(256) NOT NULL,
+    nip         VARCHAR(10)  UNIQUE,
+    zopz_id     INTEGER      NOT NULL REFERENCES uzytkownik(id),  -- opiekun zakładowy
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE praktyka (
-    id                INTEGER     PRIMARY KEY AUTOINCREMENT,
-    student_id        INTEGER     NOT NULL REFERENCES uzytkownik(id),
-    uopz_id           INTEGER     NOT NULL REFERENCES uzytkownik(id),
-    zaklad_id         INTEGER     NOT NULL REFERENCES zaklad(id),
-    data_rozpoczecia  DATE        NOT NULL,
-    data_zakonczenia  DATE        NOT NULL,
-    status            VARCHAR(16) NOT NULL DEFAULT 'draft'
-                                  CHECK (status IN (
-                                      'draft','submitted','active',
-                                      'completed','under_review',
-                                      'approved','rejected','closed'
-                                  )),
-    created_at        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE efekt_uczenia (
-    id    INTEGER     PRIMARY KEY AUTOINCREMENT,
-    kod   VARCHAR(4)  NOT NULL UNIQUE,
-    opis  TEXT        NOT NULL
+    id                INTEGER      PRIMARY KEY AUTOINCREMENT,
+    student_id        INTEGER      NOT NULL REFERENCES uzytkownik(id),
+    uopz_id           INTEGER      NOT NULL REFERENCES uzytkownik(id),
+    zaklad_id         INTEGER      NOT NULL REFERENCES zaklad(id),
+    data_rozpoczecia  DATE         NOT NULL,
+    data_zakonczenia  DATE         NOT NULL,
+    etap              VARCHAR(32)  NOT NULL DEFAULT 'dyrektor_wysyla_wstepne',  -- stan workflow (13 etapów)
+    nr_albumu         VARCHAR(16)  NOT NULL DEFAULT '',   -- uzupełniane przez studenta
+    specjalnosc       VARCHAR(128) NOT NULL DEFAULT '',   -- uzupełniane przez studenta
+    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE wpis_dziennika (
-    id              INTEGER  PRIMARY KEY AUTOINCREMENT,
-    praktyka_id     INTEGER  NOT NULL REFERENCES praktyka(id),
-    data_wpisu      DATE     NOT NULL,
-    opis_prac       TEXT     NOT NULL,
-    potwierdzony    BOOLEAN  NOT NULL DEFAULT 0,
-    potwierdzone_at DATETIME,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE wpis_efekt (
-    wpis_id   INTEGER NOT NULL REFERENCES wpis_dziennika(id),
-    efekt_id  INTEGER NOT NULL REFERENCES efekt_uczenia(id),
-    PRIMARY KEY (wpis_id, efekt_id)
+    id                INTEGER      PRIMARY KEY AUTOINCREMENT,
+    praktyka_id       INTEGER      NOT NULL REFERENCES praktyka(id),
+    numer_dnia        INTEGER      NOT NULL,            -- 1..120
+    data_wpisu        DATE         NOT NULL,
+    opis_prac         TEXT         NOT NULL,
+    nr_efektow        TEXT         NOT NULL DEFAULT '[]',  -- JSON: lista kodów efektów (np. ["01","05"])
+    osoba_nadzorujaca VARCHAR(128),                     -- zachowane w schemacie, nieużywane w UI
+    potwierdzony      BOOLEAN      NOT NULL DEFAULT 0,   -- strona zatwierdzona przez ZOPZ
+    potwierdzone_at   DATETIME,
+    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (praktyka_id, numer_dnia)
 );
 
 CREATE TABLE dokument (
-    id              INTEGER     PRIMARY KEY AUTOINCREMENT,
-    praktyka_id     INTEGER     NOT NULL REFERENCES praktyka(id),
-    typ             VARCHAR(16) NOT NULL CHECK (typ IN (
-                        'zal_2a','zal_3','zal_4',
-                        'zal_5','zal_6','zal_7','zal_8'
+    id              INTEGER      PRIMARY KEY AUTOINCREMENT,
+    praktyka_id     INTEGER      NOT NULL REFERENCES praktyka(id),
+    typ             VARCHAR(16)  NOT NULL CHECK (typ IN (
+                        'zal1','zal2','zal2a','zal3_1','zal3_2','zal3_3',
+                        'zal3_4','zal3_5','zal3_6','zal4','zal5','zal7','zal8'
                     )),
-    zawartosc_json  TEXT        NOT NULL,
-    status          VARCHAR(16) NOT NULL DEFAULT 'draft'
-                                CHECK (status IN (
-                                    'draft','submitted',
-                                    'approved','rejected'
-                                )),
-    uwagi           TEXT,
-    created_at      DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
+    zawartosc_json  TEXT         NOT NULL DEFAULT '{}',  -- pola formularza i podpisy załącznika
+    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (praktyka_id, typ)
 );
 
-CREATE TABLE ocena_koncowa (
-    id              INTEGER  PRIMARY KEY AUTOINCREMENT,
-    praktyka_id     INTEGER  NOT NULL UNIQUE REFERENCES praktyka(id),
-    ocena_e         REAL     CHECK (ocena_e BETWEEN 2.0 AND 5.0),
-    ocena_s         REAL     CHECK (ocena_s BETWEEN 2.0 AND 5.0),
-    ocena_u         REAL     CHECK (ocena_u BETWEEN 2.0 AND 5.0),
-    ocena_z         REAL     CHECK (ocena_z BETWEEN 2.0 AND 5.0),
-    ocena_k         REAL     GENERATED ALWAYS AS
-                        (ROUND(0.4*ocena_e + 0.1*ocena_s
-                             + 0.2*ocena_u + 0.3*ocena_z, 2)) STORED,
-    data_egzaminu   DATE,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE app_setting (
+    klucz    VARCHAR(64) PRIMARY KEY,   -- np. 'admin_password_hash'
+    wartosc  TEXT        NOT NULL DEFAULT ''
 );
 
-CREATE TABLE hospitacja (
-    id          INTEGER  PRIMARY KEY AUTOINCREMENT,
-    praktyka_id INTEGER  NOT NULL REFERENCES praktyka(id),
-    uopz_id     INTEGER  NOT NULL REFERENCES uzytkownik(id),
-    data_wizyty DATE     NOT NULL,
-    notatki     TEXT,
-    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE wniosek_zaliczenie (
-    id             INTEGER     PRIMARY KEY AUTOINCREMENT,
-    student_id     INTEGER     NOT NULL REFERENCES uzytkownik(id),
-    dyrektor_id    INTEGER     REFERENCES uzytkownik(id),
-    uzasadnienie   TEXT        NOT NULL,
-    typ_podstawy   VARCHAR(16) NOT NULL CHECK (typ_podstawy IN (
-                       'praca','staz','dzialalnosc'
-                   )),
-    status         VARCHAR(16) NOT NULL DEFAULT 'pending'
-                               CHECK (status IN (
-                                   'pending','approved',
-                                   'partial','rejected'
-                               )),
-    decyzja_opis   TEXT,
-    created_at     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE audit_log (
-    id              INTEGER     PRIMARY KEY AUTOINCREMENT,
-    uzytkownik_id   INTEGER     REFERENCES uzytkownik(id),
-    akcja           VARCHAR(16) NOT NULL CHECK (akcja IN (
-                        'insert','update','delete','login','logout'
-                    )),
-    tabela          VARCHAR(64) NOT NULL,
-    rekord_id       INTEGER,
-    stara_wartosc   TEXT,
-    nowa_wartosc    TEXT,
-    created_at      DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- Dane słownikowe – 13 efektów uczenia z regulaminu
-INSERT INTO efekt_uczenia (kod, opis) VALUES
-('E01', 'Ma wiedzę na temat sposobu realizacji zadań inżynierskich dotyczących informatyki z zachowaniem standardów i norm technicznych'),
-('E02', 'Zna technologie, narzędzia, metody, techniki oraz sprzęt stosowane w informatyce'),
-('E03', 'Zna ekonomiczne, prawne skutki własnych działań oraz ograniczenia wynikające z prawa autorskiego i kodeksu pracy'),
-('E04', 'Zna zasady bezpieczeństwa pracy i ergonomii w zawodzie informatyka'),
-('E05', 'Pozyskuje informacje z różnych źródeł w języku polskim i angielskim'),
-('E06', 'Potrafi podnieść kompetencje z co najmniej dwóch zakresów: sprzęt i oprogramowanie'),
-('E07', 'Opracowuje dokumentację i referuje ustnie zagadnienia z praktyki'),
-('E08', 'Potrafi zidentyfikować problem informatyczny, opisać go i zrealizować koncepcję rozwiązania'),
-('E09', 'Rozwiązuje rzeczywiste zadanie inżynierskie stosując normy i aspekty etyczne'),
-('E10', 'Pracuje w zespole branży IT'),
-('E11', 'Przestrzega zasad etyki zawodowej'),
-('E12', 'Potrafi komunikować się z osobami spoza branży'),
-('E13', 'Dostrzega tempo deaktualizacji wiedzy i skutki działalności informatyków');
+-- Uwagi:
+-- * Lista 13 efektów uczenia się (E01–E13) nie jest tabelą – to stała EFEKTY_UCZENIA w api/db.py.
+-- * Treść każdego załącznika (pola i podpisy) trzymana jest jako JSON w dokument.zawartosc_json.
+-- * Administrator nie jest kontem użytkownika – panel /admin chroniony jest hasłem,
+--   którego hash przechowuje app_setting (klucz 'admin_password_hash').

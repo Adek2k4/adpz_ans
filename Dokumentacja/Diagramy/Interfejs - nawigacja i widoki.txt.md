@@ -1,44 +1,61 @@
 ```mermaid
 flowchart TD
-    START([Wejście na stronę]) --> AUTH{Zalogowany?}
-    AUTH -- Nie --> LOGIN[Strona logowania]
+    START([Wejście na stronę]) --> NAV[Nawigacja: Start / Panel / Kontakt / Admin]
+    NAV --> AUTH{Zalogowany?}
+
+    AUTH -- Nie --> LOGIN[/login – e-mail+hasło\nlub logowanie Microsoft/]
     LOGIN --> CRED{Dane poprawne?}
     CRED -- Nie --> ERR1[Błąd logowania]
     ERR1 --> LOGIN
     CRED -- Tak --> ROLE{Rola?}
 
-    ROLE -- Student --> DS[Dashboard Studenta]
-    ROLE -- UOPZ --> DU[Dashboard UOPZ]
-    ROLE -- ZOPZ --> DZ[Dashboard ZOPZ]
-    ROLE -- Dyrektor --> DD[Dashboard Dyrektora]
+    AUTH -- Tak --> ROLE
 
-    DS --> DS1[Lista moich praktyk]
-    DS --> DS2[Dziennik praktyki]
-    DS --> DS3[Złóż wniosek\no zaliczenie]
-    DS --> DS4[Moje dokumenty]
+    ROLE -- Student --> DS[Panel studenta]
+    ROLE -- UOPZ --> DU[Panel UOPZ]
+    ROLE -- ZOPZ --> DZ[Panel ZOPZ]
+    ROLE -- Dyrektor --> DD[Panel dyrektora]
 
-    DU --> DU1[Lista studentów]
-    DU --> DU2[Weryfikacja dokumentów]
-    DU --> DU3[Harmonogramy]
-    DU --> DU4[Hospitacje]
+    DS --> DS1[Moja praktyka + status etapu]
+    DS --> DS2[Moje dane: nr albumu, specjalność]
+    DS --> DS3[Załączniki do podpisu]
+    DS --> DS4[Dziennik praktyki]
 
-    DZ --> DZ1[Moi praktykanci]
-    DZ --> DZ2[Potwierdzanie wpisów]
-    DZ --> DZ3[Wystawianie ocen]
+    DU --> DU1[Utwórz praktykę]
+    DU --> DU2[Lista praktyk + załączniki]
+    DU --> DU3[Zamknięcie praktyki]
 
-    DD --> DD1[Wnioski o zaliczenie\nna podstawie pracy]
-    DD --> DD2[Komisja egzaminacyjna]
-    DD --> DD3[Raporty i statystyki]
+    DZ --> DZ1[Praktyki zakładu + załączniki]
+    DZ --> DZ2[Zatwierdzanie stron dziennika]
 
-    DS1 --> DETAIL[Widok szczegółowy\npraktyki]
-    DU1 --> DETAIL
-    DETAIL --> EDIT{Uprawnienia\ndo edycji?}
-    EDIT -- Tak --> FORM[Formularz edycji]
-    EDIT -- Nie --> READONLY[Podgląd Read-only]
+    DD --> DD1[Praktyki + załączniki do podpisu]
+    DD --> DD2[/zatwierdzanie – aktywacja kont ZOPZ/]
+
+    DS1 --> DOC[Widok załącznika\n/praktyka/id/dokument/typ]
+    DU2 --> DOC
+    DZ1 --> DOC
+    DD1 --> DOC
+    DOC --> EDIT{can_edit_dok?}
+    EDIT -- Tak --> FORM[Formularz + Podpisz + Pobierz PDF]
+    EDIT -- Nie --> READONLY[Podgląd Read-only + Pobierz PDF]
+
+    NAV --> ADMIN[/admin – panel chroniony hasłem/]
+    ADMIN --> ADMINP[Zarządzanie rolami\n+ zmiana hasła panelu]
 
     style LOGIN fill:#378ADD,color:#fff
     style ERR1 fill:#E24B4A,color:#fff
     style FORM fill:#1D9E75,color:#fff
     style READONLY fill:#888780,color:#fff
+    style ADMIN fill:#6A4FB6,color:#fff
+```
 
+## Uwagi
+
+- Pasek nawigacji (`base.html`): **Start, Panel, Kontakt, Admin** oraz – po zalogowaniu –
+  **Profil, Wyloguj** (a dla dyrektora dodatkowo **Zatwierdzanie**). W trybie demo dostępny
+  jest też dropdown **🛠 DEV** z szybkim logowaniem na konta testowe.
+- Panel (`/dashboard`) renderuje się zależnie od roli (jeden szablon `dashboard.html`).
+- Załączniki obsługiwane są jednym widokiem `dokument.html` (gałąź `if/elif` per typ),
+  z możliwością pobrania PDF.
+- Panel administratora (`/admin`) jest niezależny od kont użytkowników – chroniony samym hasłem.
 ```

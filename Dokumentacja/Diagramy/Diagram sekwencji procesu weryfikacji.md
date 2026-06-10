@@ -1,42 +1,47 @@
 ```mermaid
 sequenceDiagram
     participant S as Student
-    participant B as Backend Flask
-    participant J as Baza JSON
-    participant O as Opiekun Uczelniany
+    participant B as Backend Flask (api/routes.py)
+    participant DB as SQLite (data/app.db)
+    participant Z as ZOPZ
 
-    S->>B: POST /dziennik/zatwierdz {dane dziennika}
+    Note over S,Z: Prowadzenie dziennika praktyki (120 dni)
 
-    B->>B: Walidacja kompletności danych
-
+    S->>B: POST /api/praktyki/{id}/dziennik {data, opis, nr_efektow}
+    B->>B: Walidacja (data_wpisu, opis_prac wymagane)
     alt Dane niekompletne
-        B-->>S: 400 Bad Request {błędy walidacji}
-    else Dane kompletne
-        B->>J: Zapis dziennika ze statusem "oczekuje"
-        J-->>B: Potwierdzenie zapisu
-
-        B-->>S: 200 OK {status: "oczekuje na weryfikację"}
-
-        B->>O: Powiadomienie o nowym dokumencie do weryfikacji
-
-        O->>B: GET /dziennik/{id} – podgląd dokumentu
-        B->>J: Odczyt danych dziennika
-        J-->>B: Dane dziennika
-        B-->>O: 200 OK {dane dziennika}
-
-        alt Opiekun odrzuca dokument
-            O->>B: POST /dziennik/{id}/odrzuc {uwagi}
-            B->>J: Aktualizacja statusu na "odrzucony" + zapis uwag
-            J-->>B: Potwierdzenie zapisu
-            B-->>O: 200 OK {status: "odrzucony"}
-            B->>S: Powiadomienie o odrzuceniu + uwagi
-        else Opiekun zatwierdza dokument
-            O->>B: POST /dziennik/{id}/zatwierdz
-            B->>J: Aktualizacja statusu na "zatwierdzony"
-            J-->>B: Potwierdzenie zapisu
-            B-->>O: 200 OK {status: "zatwierdzony"}
-            B->>S: Powiadomienie o zatwierdzeniu
-        end
+        B-->>S: 400 {ok:false, error}
+    else Dane poprawne
+        B->>DB: INSERT wpis_dziennika (numer_dnia = kolejny)
+        DB-->>B: OK
+        B-->>S: 201 {ok:true, numer_dnia}
     end
 
+    Note over Z,DB: Zatwierdzanie strony (10 wpisów)
+
+    Z->>B: POST /api/praktyki/{id}/dziennik/strony/{n}/zatwierdz
+    B->>B: Sprawdź rolę = ZOPZ zakładu
+    alt Strona ma mniej niż 10 wpisów
+        B-->>Z: 409 {error: za mało wpisów}
+    else Strona kompletna
+        B->>DB: UPDATE potwierdzony=1, potwierdzone_at dla dni strony n
+        DB-->>B: OK
+        alt Wszystkie 120 wpisów potwierdzone
+            B->>DB: UPDATE praktyka SET etap='zal7_do_podpisania'
+            B-->>Z: 200 {advanced:true}
+        else
+            B-->>Z: 200 {confirmed_total}
+        end
+    end
+```
+
+## Uwagi
+
+- Dane przechowywane są w **SQLite** (`data/app.db`), nie w plikach JSON.
+- Dziennik liczy **120 wpisów** pogrupowanych w **12 stron po 10 dni**; ZOPZ zatwierdza
+  całą stronę naraz (podpis ZOPZ pojawia się na zatwierdzonej stronie PDF).
+- Po potwierdzeniu wszystkich 120 wpisów etap praktyki przechodzi automatycznie do
+  `zal7_do_podpisania` (mechanizm także samonaprawiający przy wczytaniu praktyki).
+- Stronę niezatwierdzoną student może jeszcze edytować
+  (`PUT /api/praktyki/{id}/dziennik/{numer}`).
 ```
