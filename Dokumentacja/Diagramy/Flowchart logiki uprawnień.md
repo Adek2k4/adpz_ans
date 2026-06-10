@@ -5,7 +5,7 @@ flowchart TD
     B -- Nie --> C[Przekieruj na\nstronę logowania]
     C --> KONIEC1([Koniec])
 
-    B -- Tak --> G{Czy użytkownik jest\nuczestnikiem praktyki?\n(student / uopz / zopz / dyrektor)}
+    B -- Tak --> G{"Czy użytkownik jest\nuczestnikiem praktyki?\nstudent / uopz / zopz / dyrektor"}
     G -- Nie --> X[403 Forbidden]
     X --> KONIEC0([Koniec])
 
